@@ -1,0 +1,35 @@
+# Coxpanel 开发环境 docker-compose
+# 生产部署（NAS）后续单独出 deployments/
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: coxpanel-pg
+    environment:
+      POSTGRES_PASSWORD: ${COXPANEL_DB_PASSWORD:-devpass}
+      POSTGRES_DB: coxpanel
+      POSTGRES_USER: coxpanel
+    ports:
+      - "55433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U coxpanel"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    container_name: coxpanel-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      COXPANEL_DB_URL: postgres://coxpanel:${COXPANEL_DB_PASSWORD:-devpass}@postgres:5432/coxpanel
+      COXPANEL_JWT_SECRET: ${COXPANEL_JWT_SECRET:-change-me-in-prod}
+      COXPANEL_ADDR: :8080
+    ports:
+      - "18080:8080"
+
+volumes:
+  pgdata:
