@@ -3,8 +3,10 @@ package admin
 
 import (
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/coxpanel/backend/internal/api/middleware"
@@ -14,8 +16,8 @@ import (
 
 // Handler 依赖集合。
 type Handler struct {
-	Auth   *auth.Service
-	Users  *repo.UserRepo
+	Auth  *auth.Service
+	Users *repo.UserRepo
 }
 
 // Register 注册（需邀请码）。
@@ -35,34 +37,30 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 消费邀请码
-	ic, err := h.Users.UseInvite(r.Context(), req.Invite)
-	if err != nil {
-		middleware.Err(w, http.StatusForbidden, "invalid_invite", "邀请码无效或已用完")
-		return
-	}
-
 	hash, err := auth.HashPassword(req.Password)
 	if err != nil {
 		middleware.Err(w, http.StatusInternalServerError, "internal", "密码处理失败")
 		return
 	}
-	id, err := h.Users.CreateUser(r.Context(), req.Username, hash, req.Email, "user")
+	u, _, err := h.Users.RegisterWithInvite(r.Context(), req.Username, hash, req.Email, req.Invite)
+	if errors.Is(err, repo.ErrInvalidInvite) {
+		middleware.Err(w, http.StatusForbidden, "invalid_invite", "邀请码无效或已用完")
+		return
+	}
 	if err != nil {
 		middleware.Err(w, http.StatusConflict, "conflict", "用户名或邮箱已存在")
 		return
 	}
 
-	token, err := h.Auth.IssueToken(id, req.Username, "user")
+	token, err := h.Auth.IssueToken(u.ID, u.Username, u.Role)
 	if err != nil {
 		middleware.Err(w, http.StatusInternalServerError, "internal", "token 签发失败")
 		return
 	}
 
-	_ = ic // 邀请码节点组绑定（P2 再关联默认订阅）
 	middleware.JSON(w, http.StatusCreated, map[string]any{
 		"token": token,
-		"user":  map[string]any{"id": id, "username": req.Username, "role": "user"},
+		"user":  map[string]any{"id": u.ID, "username": u.Username, "role": u.Role},
 	})
 }
 
@@ -77,7 +75,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u, err := h.Users.GetByUsername(r.Context(), req.Username)
-	if err != nil || !auth.CheckPassword(u.PasswordHash, req.Password) {
+	if err != nil || u == nil || !u.Active || !auth.CheckPassword(u.PasswordHash, req.Password) {
 		middleware.Err(w, http.StatusUnauthorized, "bad_credentials", "用户名或密码错误")
 		return
 	}
@@ -111,10 +109,24 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 // GenInviteCode 生成邀请码（admin）。
 func (h *Handler) GenInviteCode(w http.ResponseWriter, r *http.Request) {
 	c := middleware.ClaimsFrom(r.Context())
+	var req struct {
+		GroupID int64 `json:"groupId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.GroupID <= 0 {
+		middleware.Err(w, http.StatusBadRequest, "bad_request", "必须选择有效用户组")
+		return
+	}
 	buf := make([]byte, 6)
-	rand.Read(buf)
+	if _, err := rand.Read(buf); err != nil {
+		middleware.Err(w, http.StatusInternalServerError, "internal", "邀请码生成失败")
+		return
+	}
 	code := "CXP-" + hex.EncodeToString(buf)
-	if _, err := h.Users.CreateInvite(r.Context(), code, 1, nil, nil, c.UserID); err != nil {
+	if _, err := h.Users.CreateInvite(r.Context(), code, 1, nil, &req.GroupID, c.UserID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			middleware.Err(w, http.StatusNotFound, "not_found", "用户组不存在")
+			return
+		}
 		middleware.Err(w, http.StatusInternalServerError, "internal", "创建失败")
 		return
 	}

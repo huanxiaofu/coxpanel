@@ -4,6 +4,8 @@ package config
 import (
 	"fmt"
 	"os"
+
+	"github.com/coxpanel/backend/internal/auth"
 )
 
 // Config 面板运行配置。
@@ -42,6 +44,9 @@ func Load() (*Config, error) {
 	}
 	if c.JWTSecret == "" {
 		return nil, fmt.Errorf("COXPANEL_JWT_SECRET 未设置")
+	}
+	if err := auth.ValidateSigningSecret(c.JWTSecret); err != nil {
+		return nil, fmt.Errorf("COXPANEL_JWT_SECRET 配置无效")
 	}
 	return c, nil
 }

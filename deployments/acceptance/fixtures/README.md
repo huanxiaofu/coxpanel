@@ -1,0 +1,1 @@
+This directory is reserved for generated, test-owned protocol fixtures. Do not place credentials, private keys, or public deployment data in the repository. The acceptance coordinator should mount generated fixtures read-only when exercising the optional agent profile.

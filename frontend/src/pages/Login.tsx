@@ -1,15 +1,16 @@
 import { Form, Input, Button, Card, message } from 'antd';
 import { useNavigate, Link } from 'react-router-dom';
 import { api } from '../api';
+import { useAuth } from '../auth/AuthContext';
 
 export default function Login() {
   const nav = useNavigate();
+  const { establishSession } = useAuth();
 
   const onFinish = async (v: { username: string; password: string }) => {
     try {
       const res = await api.login(v.username, v.password);
-      localStorage.setItem('coxpanel_token', res.token);
-      localStorage.setItem('coxpanel_user', JSON.stringify(res.user));
+      establishSession(res.token);
       message.success('登录成功');
       nav('/');
     } catch (e: any) {

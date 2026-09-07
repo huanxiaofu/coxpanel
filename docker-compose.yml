@@ -1,35 +1,76 @@
-# Coxpanel 开发环境 docker-compose
-# 生产部署（NAS）后续单独出 deployments/
+name: coxpanel
+
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: coxpanel-pg
+    user: "70:70"
     environment:
-      POSTGRES_PASSWORD: ${COXPANEL_DB_PASSWORD:-devpass}
-      POSTGRES_DB: coxpanel
-      POSTGRES_USER: coxpanel
-    ports:
-      - "55433:5432"
+      POSTGRES_DB: ${COXPANEL_DB_NAME:-coxpanel}
+      POSTGRES_USER: ${COXPANEL_DB_USER:-coxpanel}
+      POSTGRES_PASSWORD: ${COXPANEL_DB_PASSWORD:?COXPANEL_DB_PASSWORD must be set}
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - type: volume
+        source: pgdata
+        target: /var/lib/postgresql/data
+        volume:
+          nocopy: false
+    read_only: true
+    tmpfs:
+      - /run/postgresql:uid=70,gid=70,mode=0755
+      - /tmp:uid=70,gid=70,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 30s
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U coxpanel"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 3s
       retries: 10
 
   backend:
-    build: ./backend
-    container_name: coxpanel-backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     depends_on:
       postgres:
         condition: service_healthy
     environment:
-      COXPANEL_DB_URL: postgres://coxpanel:${COXPANEL_DB_PASSWORD:-devpass}@postgres:5432/coxpanel
-      COXPANEL_JWT_SECRET: ${COXPANEL_JWT_SECRET:-change-me-in-prod}
+      COXPANEL_DB_URL: ${COXPANEL_DB_URL:?COXPANEL_DB_URL must be set and point to the postgres service}
+      COXPANEL_JWT_SECRET: ${COXPANEL_JWT_SECRET:?COXPANEL_JWT_SECRET must be set}
       COXPANEL_ADDR: :8080
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 15s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    depends_on:
+      - backend
     ports:
-      - "18080:8080"
+      - "127.0.0.1:${COXPANEL_HTTP_PORT:-18080}:8080"
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx:mode=1777
+      - /var/run:mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 15s
 
 volumes:
   pgdata:
+
+networks:
+  default:
+    internal: true

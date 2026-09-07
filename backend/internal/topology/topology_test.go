@@ -2,6 +2,7 @@ package topology
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/coxpanel/backend/internal/models"
@@ -30,10 +31,10 @@ func TestBuildRealityPlusSS(t *testing.T) {
 	if r.Type != "vless" || r.ListenPort != 5443 {
 		t.Errorf("reality 入站错误: %+v", r)
 	}
-	if r.TLS == nil || r.TLS.Reality == nil || r.TLS.Reality.MinClientVer != "1.8.2" {
-		t.Errorf("Reality 配置缺失 minClientVer: %+v", r.TLS)
+	if r.TLS == nil || r.TLS.Reality == nil || r.TLS.Reality.Handshake.ServerPort != 443 {
+		t.Errorf("Reality handshake 配置缺失: %+v", r.TLS)
 	}
-	if r.TLS.Reality.Handshake.Server != "xtom.com:443" {
+	if r.TLS.Reality.Handshake.Server != "xtom.com" {
 		t.Errorf("Reality handshake 目标错误: %+v", r.TLS.Reality.Handshake)
 	}
 	// 校验 ss 入站
@@ -49,6 +50,9 @@ func TestBuildRealityPlusSS(t *testing.T) {
 	}
 	if len(out) < 100 {
 		t.Errorf("输出过短: %s", out)
+	}
+	if strings.Contains(string(out), "min_client_ver") {
+		t.Errorf("输出包含已移除的 min_client_ver 字段: %s", out)
 	}
 	t.Logf("生成配置:\n%s", out)
 }

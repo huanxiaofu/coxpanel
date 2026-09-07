@@ -3,11 +3,25 @@ package auth
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 )
+
+var ErrWeakSigningSecret = errors.New("signing secret is too weak")
+
+// ValidateSigningSecret rejects configuration that is missing enough key
+// material for HS256 or contains control characters that could be logged or
+// transported ambiguously. Callers must supply the secret; no fallback exists.
+func ValidateSigningSecret(secret string) error {
+	if len([]byte(secret)) < 32 || strings.ContainsAny(secret, "\r\n\x00") {
+		return fmt.Errorf("%w: require at least 32 bytes", ErrWeakSigningSecret)
+	}
+	return nil
+}
 
 // Service 鉴权服务。
 type Service struct {
@@ -48,18 +62,24 @@ func (s *Service) IssueToken(userID int64, username, role string) (string, error
 
 // ParseToken 校验并解析 JWT。
 func (s *Service) ParseToken(tokenStr string) (*Claims, error) {
+	if s == nil || len(s.secret) == 0 || tokenStr == "" {
+		return nil, errors.New("invalid token")
+	}
 	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(t *jwt.Token) (any, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+		if t.Method != jwt.SigningMethodHS256 {
 			return nil, errors.New("unexpected signing method")
 		}
 		return s.secret, nil
-	})
+	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
 	if err != nil {
 		return nil, err
 	}
 	claims, ok := token.Claims.(*Claims)
 	if !ok || !token.Valid {
 		return nil, errors.New("invalid token")
+	}
+	if claims.ExpiresAt == nil {
+		return nil, errors.New("token expiry is required")
 	}
 	return claims, nil
 }

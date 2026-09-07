@@ -1,49 +1,109 @@
-// 后端 API 封装
 const BASE = import.meta.env.VITE_API_BASE || '';
+
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
+export type UserRole = 'user' | 'admin' | 'owner' | string;
+
+export interface AuthUser {
+  id: number;
+  username: string;
+  email?: string | null;
+  role: UserRole;
+}
 
 export interface Node {
   id: number;
   name: string;
-  type: 'managed' | 'external';
-  publicIp?: string;
-  easyIp?: string;
-  coreVersion?: string;
-  status: string;
-  extProtocol?: string;
-  extParams?: any;
+  type: 'managed' | 'external' | string;
+  publicIp?: string | null;
+  easyIp?: string | null;
+  coreVersion?: string | null;
+  status?: string | null;
+  extProtocol?: string | null;
+  extParams?: Record<string, unknown> | null;
 }
 
 export interface Inbound {
   id: number;
   nodeId: number;
   name: string;
-  protocol: string;
-  role: 'entry' | 'landing' | 'relay';
-  listenAddr: string;
-  listenPort: number;
-  config: any;
-  minClientVer: string;
+  protocol: 'vless-reality' | 'shadowsocks' | 'hysteria2' | string;
+  role: 'entry' | 'landing' | 'relay' | string;
+  listenAddr?: string | null;
+  listenPort?: number | null;
+  config?: Record<string, unknown> | null;
 }
+
+export type SupportedSubscriptionFormat = 'mihomo' | 'base64';
 
 export interface Subscription {
   id: number;
   name: string;
-  token: string;
-  format: string;
+  token?: string | null;
+  format: SupportedSubscriptionFormat | string;
+  nodeGroupId?: number | null;
+}
+
+export interface TopologyEdge {
+  fromInboundId: number;
+  toNodeId: number;
+  toInboundId: number;
+}
+
+export interface TopologyDraft {
+  nodeId: number;
+  edges: TopologyEdge[];
+  revision?: string | number | null;
+}
+
+export interface TopologyPreview {
+  version: string;
+  config: unknown;
+}
+
+export interface NodeGroup {
+  id: number;
+  name: string;
+  nodeIds?: number[] | null;
+}
+
+export interface AdminUser {
+  id: number;
+  username: string;
+  email?: string | null;
+  role?: UserRole | null;
+  groupIds?: number[] | null;
+}
+
+export interface Invite {
+  id?: number;
+  code: string;
+  nodeGroupId?: number | null;
+  maxUses?: number | null;
+  usedCount?: number | null;
+  expiresAt?: string | null;
 }
 
 function token(): string {
   return localStorage.getItem('coxpanel_token') || '';
 }
 
-async function req(path: string, method = 'GET', body?: any): Promise<any> {
+async function req(path: string, method = 'GET', body?: unknown): Promise<any> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const t = token();
-  if (t) headers['Authorization'] = `Bearer ${t}`;
+  if (t) headers.Authorization = `Bearer ${t}`;
   const res = await fetch(`${BASE}${path}`, {
     method,
     headers,
-    body: body ? JSON.stringify(body) : undefined,
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (res.status === 401) {
     localStorage.removeItem('coxpanel_token');
@@ -53,41 +113,54 @@ async function req(path: string, method = 'GET', body?: any): Promise<any> {
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(data?.error?.message || `HTTP ${res.status}`);
+    throw new ApiError(res.status, data?.error?.message || `HTTP ${res.status}`);
   }
   return data;
 }
 
 export const api = {
-  // 认证
   login: (username: string, password: string) =>
     req('/api/auth/login', 'POST', { username, password }),
   register: (username: string, password: string, email: string, inviteCode: string) =>
     req('/api/auth/register', 'POST', { username, password, email, inviteCode }),
-  me: () => req('/api/me'),
+  me: (): Promise<AuthUser> => req('/api/me'),
 
-  // 节点（admin）
   listNodes: (): Promise<Node[]> => req('/api/nodes/'),
-  createNode: (data: any) => req('/api/nodes/', 'POST', data),
-  updateNode: (id: number, data: any) => req(`/api/nodes/${id}/`, 'PUT', data),
+  createNode: (data: Record<string, unknown>) => req('/api/nodes/', 'POST', data),
+  updateNode: (id: number, data: Record<string, unknown>) => req(`/api/nodes/${id}/`, 'PUT', data),
   deleteNode: (id: number) => req(`/api/nodes/${id}/`, 'DELETE'),
   listInbounds: (nodeId: number): Promise<Inbound[]> => req(`/api/nodes/${nodeId}/inbounds`),
-  createInbound: (nodeId: number, data: any) => req(`/api/nodes/${nodeId}/inbounds`, 'POST', data),
+  createInbound: (nodeId: number, data: Record<string, unknown>) =>
+    req(`/api/nodes/${nodeId}/inbounds`, 'POST', data),
   deleteInbound: (nodeId: number, inboundId: number) =>
     req(`/api/nodes/${nodeId}/inbounds/${inboundId}`, 'DELETE'),
 
-  // 邀请码（admin）
-  listInvites: () => req('/api/invites/'),
-  genInvite: () => req('/api/invites/', 'POST', {}),
+  listInvites: (): Promise<Invite[]> => req('/api/invites/'),
+  genInvite: (groupId: number) => req('/api/invites/', 'POST', { groupId }),
 
-  // 订阅（用户）
   listSubs: (): Promise<Subscription[]> => req('/api/my/subscriptions'),
-  createSub: (name: string, format = 'mihomo') =>
-    req('/api/my/subscriptions', 'POST', { name, format }),
+  listMyGroups: (): Promise<Array<{ id: number; name: string }>> => req('/api/my/groups'),
+  createSub: (name: string, format: SupportedSubscriptionFormat, nodeGroupId: number) =>
+    req('/api/my/subscriptions', 'POST', { name, format, nodeGroupId }),
   deleteSub: (id: number) => req(`/api/my/subscriptions/${id}`, 'DELETE'),
-  saveOverride: (subId: number, nodeId: number, data: any) =>
+  saveOverride: (subId: number, nodeId: number, data: Record<string, unknown>) =>
     req(`/api/my/subscriptions/${subId}/overrides/${nodeId}`, 'PUT', data),
 
-  // 订阅 URL
-  subUrl: (t: string) => `${BASE}/sub/${t}`,
+  getTopology: (nodeId: number): Promise<TopologyDraft> => req(`/api/topology/${nodeId}`),
+  saveTopology: (nodeId: number, draft: TopologyDraft): Promise<TopologyDraft> =>
+    req(`/api/topology/${nodeId}`, 'PUT', draft),
+  previewTopology: (nodeId: number): Promise<TopologyPreview> =>
+    req(`/api/topology/${nodeId}/preview`, 'POST'),
+  deployTopology: (nodeId: number, version: string): Promise<{ version: string; deployed: boolean }> =>
+    req(`/api/topology/${nodeId}/deploy`, 'POST', { version }),
+
+  listGroups: (): Promise<NodeGroup[]> => req('/api/groups'),
+  createGroup: (name: string): Promise<NodeGroup> => req('/api/groups', 'POST', { name }),
+  setGroupNodes: (groupId: number, nodeIds: number[]) =>
+    req(`/api/groups/${groupId}/nodes`, 'PUT', { nodeIds }),
+  listUsers: (): Promise<AdminUser[]> => req('/api/users'),
+  setUserGroups: (userId: number, groupIds: number[]) =>
+    req(`/api/users/${userId}/groups`, 'PUT', { groupIds }),
+
+  subUrl: (t: string) => `${(BASE || window.location.origin).replace(/\/$/, '')}/sub/${encodeURIComponent(t)}`,
 };

@@ -5,15 +5,34 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/coxpanel/backend/internal/models"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // NodeRepo 节点数据访问。
 type NodeRepo struct{ db *sql.DB }
 
 func NewNodeRepo(db *sql.DB) *NodeRepo { return &NodeRepo{db: db} }
+
+var errInvalidAgentCredential = errors.New("invalid agent credential")
+
+// AuthenticateAgent 校验绑定到节点的独立 agent 凭据。
+func (r *NodeRepo) AuthenticateAgent(ctx context.Context, nodeID int64, credential string) error {
+	if nodeID <= 0 || credential == "" {
+		return errInvalidAgentCredential
+	}
+	var hash string
+	if err := r.db.QueryRowContext(ctx, `SELECT credential_hash FROM agent_credentials WHERE node_id=$1`, nodeID).Scan(&hash); err != nil {
+		return errInvalidAgentCredential
+	}
+	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(credential)) != nil {
+		return errInvalidAgentCredential
+	}
+	return nil
+}
 
 // scanNode 统一扫描节点行。
 func scanNode(sc interface{ Scan(...any) error }) (*models.Node, error) {
@@ -44,13 +63,61 @@ func scanNode(sc interface{ Scan(...any) error }) (*models.Node, error) {
 
 // Create 创建节点。
 func (r *NodeRepo) Create(ctx context.Context, n *models.Node) (int64, error) {
+	if n == nil {
+		return 0, errors.New("invalid node")
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
 	var id int64
-	err := r.db.QueryRowContext(ctx, `
+	err = tx.QueryRowContext(ctx, `
 		INSERT INTO nodes (name, type, public_ip, easy_ip, ssh_host, ssh_user, ssh_port, ext_protocol, ext_params)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
 		n.Name, n.Type, nullStr(n.PublicIP), nullStr(n.EasyIP), nullStr(n.SSHHost),
 		nullStr(n.SSHUser), n.SSHPort, nullStr(n.ExtProtocol), nullJSON(n.ExtParams)).Scan(&id)
-	return id, err
+	if err != nil {
+		return 0, err
+	}
+	if err := bumpTopologyMaterial(ctx, tx); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
+// CreateWithAgentCredential 创建节点并在同一事务中保存其 agent 凭据哈希。
+func (r *NodeRepo) CreateWithAgentCredential(ctx context.Context, n *models.Node, credentialHash string) (int64, error) {
+	if credentialHash == "" {
+		return 0, errors.New("agent credential hash is required")
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	var id int64
+	err = tx.QueryRowContext(ctx, `
+		INSERT INTO nodes (name, type, public_ip, easy_ip, ssh_host, ssh_user, ssh_port, ext_protocol, ext_params)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+		n.Name, n.Type, nullStr(n.PublicIP), nullStr(n.EasyIP), nullStr(n.SSHHost),
+		nullStr(n.SSHUser), n.SSHPort, nullStr(n.ExtProtocol), nullJSON(n.ExtParams)).Scan(&id)
+	if err != nil {
+		return 0, err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO agent_credentials (node_id, credential_hash) VALUES ($1,$2)`, id, credentialHash); err != nil {
+		return 0, err
+	}
+	if err := bumpTopologyMaterial(ctx, tx); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return id, nil
 }
 
 // List 列出全部节点。
@@ -62,7 +129,7 @@ func (r *NodeRepo) List(ctx context.Context) ([]models.Node, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []models.Node
+	out := make([]models.Node, 0)
 	for rows.Next() {
 		n, err := scanNode(rows)
 		if err != nil {
@@ -83,17 +150,59 @@ func (r *NodeRepo) Get(ctx context.Context, id int64) (*models.Node, error) {
 
 // Update 更新节点。
 func (r *NodeRepo) Update(ctx context.Context, id int64, n *models.Node) error {
-	_, err := r.db.ExecContext(ctx, `
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := lockTopologyNode(ctx, tx, id); err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `
 		UPDATE nodes SET name=$2, public_ip=$3, easy_ip=$4, ssh_host=$5, ssh_user=$6, ssh_port=$7, ext_protocol=$8, ext_params=$9, updated_at=now()
 		WHERE id=$1`,
 		id, n.Name, nullStr(n.PublicIP), nullStr(n.EasyIP), nullStr(n.SSHHost), nullStr(n.SSHUser), n.SSHPort, nullStr(n.ExtProtocol), nullJSON(n.ExtParams))
-	return err
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected != 1 {
+		return sql.ErrNoRows
+	}
+	if err := bumpTopologyMaterial(ctx, tx); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // Delete 删除节点。
 func (r *NodeRepo) Delete(ctx context.Context, id int64) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM nodes WHERE id=$1`, id)
-	return err
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := lockTopologyNode(ctx, tx, id); err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `DELETE FROM nodes WHERE id=$1`, id)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected != 1 {
+		return sql.ErrNoRows
+	}
+	if err := bumpTopologyMaterial(ctx, tx); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // UpdateStatus 更新节点状态（心跳时用）。
@@ -106,12 +215,32 @@ func (r *NodeRepo) UpdateStatus(ctx context.Context, id int64, status, coreVersi
 
 // CreateInbound 创建入站。
 func (r *NodeRepo) CreateInbound(ctx context.Context, ib *models.Inbound) (int64, error) {
+	if ib == nil || ib.NodeID <= 0 {
+		return 0, errors.New("invalid inbound")
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	if err := lockTopologyNode(ctx, tx, ib.NodeID); err != nil {
+		return 0, err
+	}
 	var id int64
-	err := r.db.QueryRowContext(ctx, `
+	err = tx.QueryRowContext(ctx, `
 		INSERT INTO inbounds (node_id, name, protocol, role, listen_addr, listen_port, config, min_client_ver)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
 		ib.NodeID, ib.Name, ib.Protocol, ib.Role, ib.ListenAddr, ib.ListenPort, nullJSON(ib.Config), ib.MinClientVer).Scan(&id)
-	return id, err
+	if err != nil {
+		return 0, err
+	}
+	if err := bumpTopologyMaterial(ctx, tx); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return id, nil
 }
 
 // ListInbounds 列出入站。
@@ -121,7 +250,7 @@ func (r *NodeRepo) ListInbounds(ctx context.Context, nodeID int64) ([]models.Inb
 		return nil, err
 	}
 	defer rows.Close()
-	var out []models.Inbound
+	out := make([]models.Inbound, 0)
 	for rows.Next() {
 		var ib models.Inbound
 		var cfg []byte
@@ -138,8 +267,54 @@ func (r *NodeRepo) ListInbounds(ctx context.Context, nodeID int64) ([]models.Inb
 
 // DeleteInbound 删除入站。
 func (r *NodeRepo) DeleteInbound(ctx context.Context, id int64) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM inbounds WHERE id=$1`, id)
-	return err
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var nodeID int64
+	if err := tx.QueryRowContext(ctx, `SELECT node_id FROM inbounds WHERE id=$1 FOR UPDATE`, id).Scan(&nodeID); err != nil {
+		return err
+	}
+	if err := lockTopologyNode(ctx, tx, nodeID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM inbounds WHERE id=$1 AND node_id=$2`, id, nodeID); err != nil {
+		return err
+	}
+	if err := bumpTopologyMaterial(ctx, tx); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// DeleteInboundForNode deletes an inbound only when it belongs to the route
+// node supplied by the caller. Nested administrative routes must not be able
+// to delete another node's inbound by ID alone.
+func (r *NodeRepo) DeleteInboundForNode(ctx context.Context, nodeID, inboundID int64) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := lockTopologyNode(ctx, tx, nodeID); err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, `DELETE FROM inbounds WHERE id=$1 AND node_id=$2`, inboundID, nodeID)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected != 1 {
+		return sql.ErrNoRows
+	}
+	if err := bumpTopologyMaterial(ctx, tx); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // ---- 工具 ----

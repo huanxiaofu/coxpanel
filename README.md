@@ -23,14 +23,16 @@
 
 ```bash
 # 依赖：Go 1.26+、Node 20+、Docker
-docker compose up -d postgres        # 起数据库
-cd backend && go run ./cmd/server    # 后端 :18080
-cd frontend && npm install && npm run dev  # 前端 :5173
+# 部署环境必须从外部注入这些值，不要提交 .env 或密码。
+export COXPANEL_DB_PASSWORD="$(openssl rand -hex 24)"
+export COXPANEL_DB_URL="postgres://coxpanel:${COXPANEL_DB_PASSWORD}@postgres:5432/coxpanel?sslmode=disable"
+export COXPANEL_JWT_SECRET="$(openssl rand -hex 32)"
+docker compose up --build -d
 ```
 
-环境变量见 backend/internal/config/config.go（`COXPANEL_*` 前缀）。
+环境变量见 backend/internal/config/config.go（`COXPANEL_*` 前缀）；容器化构建与隔离验收材料见 `deployments/README.md`。
 
-## 当前状态：P1 完成
+## 当前状态：P1 开发中
 
 - [x] 骨架（go.work + 3 module + 前端 Vite）
 - [x] 认证闭环（邀请码注册 + 登录 + JWT）
@@ -39,6 +41,8 @@ cd frontend && npm install && npm run dev  # 前端 :5173
 - [x] 订阅生成（mihomo + base64）+ /sub/:token
 - [x] 拓扑翻译引擎（inbounds + edges → sing-box JSON）
 - [x] 前端页面（登录/注册/总览/节点/订阅）
+
+容器构建、首次 owner 引导和隔离验收流程见 `deployments/README.md`；完整 P1 仍需控制面与真实多协议/多跳验收完成。
 
 ## 待办（P2+）
 

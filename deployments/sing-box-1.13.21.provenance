@@ -1,0 +1,16 @@
+artifact=sing-box-1.13.21-linux-amd64-musl.tar.gz
+version=1.13.21
+platform=linux/amd64
+release=https://github.com/SagerNet/sing-box/releases/tag/v1.13.21
+download=https://github.com/SagerNet/sing-box/releases/download/v1.13.21/sing-box-1.13.21-linux-amd64-musl.tar.gz
+sha256=8864abb3b72a6b404445a8c25183c79cfa44a80def0d775ac79578e74fb980e7
+release_id=379245416
+release_tag=v1.13.21
+release_immutable=true
+asset_id=536461728
+asset_size=24759892
+asset_digest_source=/workspace/tmp/sing-box-audit/v1.13.21-release.json
+verification=agent/Dockerfile verifies the archive digest and exact installed version
+local_audit_archive=sing-box-1.13.21-linux-amd64.tar.gz
+local_audit_sha256=24f9ef8e7234e13e71e74c3598a4164c5fe07b7b67ccc6e96cf68b54789f72cd
+local_audit_note=generic Linux amd64 archive; not the musl build input

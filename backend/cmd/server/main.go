@@ -39,11 +39,12 @@ func main() {
 	// 依赖装配
 	authSvc := auth.NewService(cfg.JWTSecret, 24*time.Hour)
 	deps := api.Deps{
-		AuthSvc: authSvc,
-		Users:   repo.NewUserRepo(pool),
-		Nodes:   repo.NewNodeRepo(pool),
-		Subs:    repo.NewSubscriptionRepo(pool),
-		Groups:  repo.NewGroupRepo(pool),
+		AuthSvc:  authSvc,
+		Users:    repo.NewUserRepo(pool),
+		Nodes:    repo.NewNodeRepo(pool),
+		Subs:     repo.NewSubscriptionRepo(pool),
+		Groups:   repo.NewGroupRepo(pool),
+		Topology: repo.NewTopologyRepo(pool),
 	}
 
 	srv := &http.Server{
