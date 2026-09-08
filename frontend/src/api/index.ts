@@ -42,7 +42,7 @@ export interface Inbound {
   config?: Record<string, unknown> | null;
 }
 
-export type SupportedSubscriptionFormat = 'mihomo' | 'base64';
+export type SupportedSubscriptionFormat = 'mihomo' | 'base64' | 'sing-box';
 
 export interface Subscription {
   id: number;
@@ -50,6 +50,9 @@ export interface Subscription {
   token?: string | null;
   format: SupportedSubscriptionFormat | string;
   nodeGroupId?: number | null;
+	templateId?: number | null;
+	templateVersion?: number | null;
+	revision?: number;
 }
 
 export interface TopologyEdge {
@@ -115,14 +118,34 @@ async function req(path: string, method = 'GET', body?: unknown): Promise<any> {
   if (!res.ok) {
     throw new ApiError(res.status, data?.error?.message || `HTTP ${res.status}`);
   }
+  if (method === 'GET' && Array.isArray(data?.items) && typeof data.nextCursor === 'string') {
+    const items = [...data.items];
+    const cursors = new Set<string>();
+    let cursor = data.nextCursor;
+    while (cursor) {
+      if (cursors.has(cursor)) throw new Error('分页游标重复，请重试');
+      cursors.add(cursor);
+      const address = new URL(path, window.location.origin);
+      address.searchParams.set('cursor', cursor);
+      address.searchParams.set('limit', '200');
+      const response = await fetch(`${BASE}${address.pathname}${address.search}`, { headers });
+      if (!response.ok) throw new ApiError(response.status, '读取后续分页失败');
+      const next = await response.json();
+      if (!Array.isArray(next.items) || typeof next.nextCursor !== 'string') throw new Error('分页响应无效');
+      items.push(...next.items);
+      cursor = next.nextCursor;
+    }
+    return items;
+  }
   return data;
 }
 
 export const api = {
+	request: req,
   login: (username: string, password: string) =>
     req('/api/auth/login', 'POST', { username, password }),
-  register: (username: string, password: string, email: string, inviteCode: string) =>
-    req('/api/auth/register', 'POST', { username, password, email, inviteCode }),
+  register: (username: string, password: string, email: string, inviteCode: string, registrationTicket?: string) =>
+    req('/api/auth/register', 'POST', { username, password, email, inviteCode, registrationTicket }),
   me: (): Promise<AuthUser> => req('/api/me'),
 
   listNodes: (): Promise<Node[]> => req('/api/nodes/'),

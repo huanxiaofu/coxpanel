@@ -7,9 +7,15 @@ import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import Nodes from './pages/Nodes';
 import Subscriptions from './pages/Subscriptions';
-import Topology from './pages/Topology';
+import Topology from './pages/TopologyGraph';
 import Administration from './pages/Administration';
 import AppLayout from './components/AppLayout';
+import Traffic from './pages/Traffic';
+import Alerts from './pages/Alerts';
+import MailSettings from './pages/MailSettings';
+import VerifyEmail from './pages/VerifyEmail';
+import Templates from './pages/Templates';
+import OverrideEditor from './pages/OverrideEditor';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { user, loading, error, signOut } = useAuth();
@@ -46,6 +52,11 @@ function RequireAdmin({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function RequireOwner({ children }: { children: React.ReactNode }) {
+	const { user } = useAuth();
+	return user?.role === 'owner' ? <>{children}</> : <Result status="403" title="需要 owner 权限" />;
+}
+
 export default function App() {
   return (
     <ConfigProvider locale={zhCN}>
@@ -54,6 +65,7 @@ export default function App() {
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
+						<Route path="/verify-email" element={<VerifyEmail />} />
             <Route
               path="/"
               element={
@@ -65,7 +77,14 @@ export default function App() {
               <Route index element={<Dashboard />} />
               <Route path="nodes" element={<RequireAdmin><Nodes /></RequireAdmin>} />
               <Route path="subscriptions" element={<Subscriptions />} />
+							<Route path="subscriptions/:id/overrides" element={<OverrideEditor />} />
+							<Route path="templates" element={<Templates />} />
+							<Route path="templates/:id" element={<Templates />} />
               <Route path="topology" element={<RequireAdmin><Topology /></RequireAdmin>} />
+							<Route path="topology/:nodeId" element={<RequireAdmin><Topology /></RequireAdmin>} />
+							<Route path="traffic" element={<Traffic />} />
+							<Route path="alerts" element={<Alerts />} />
+							<Route path="settings/mail" element={<RequireOwner><MailSettings /></RequireOwner>} />
               <Route path="administration" element={<RequireAdmin><Administration /></RequireAdmin>} />
               <Route path="subs" element={<Navigate to="/subscriptions" replace />} />
             </Route>

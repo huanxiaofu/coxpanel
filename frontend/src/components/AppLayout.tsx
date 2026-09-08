@@ -10,7 +10,7 @@ export default function AppLayout() {
   const { user, signOut } = useAuth();
   const isAdmin = isAdminRole(user?.role);
 
-  const selected = loc.pathname.startsWith('/nodes')
+  const selected = ['/traffic', '/alerts', '/settings/mail', '/templates'].some(path => loc.pathname.startsWith(path)) ? loc.pathname.split('/').slice(1, loc.pathname.startsWith('/settings') ? 3 : 2).join('/') : loc.pathname.startsWith('/nodes')
     ? 'nodes'
     : loc.pathname.startsWith('/subscriptions') || loc.pathname.startsWith('/subs')
       ? 'subscriptions'
@@ -28,6 +28,10 @@ export default function AppLayout() {
       { key: 'administration', label: '权限管理' },
     ] : []),
     { key: 'subscriptions', label: '我的订阅' },
+		{ key: 'templates', label: '订阅模板' },
+		{ key: 'traffic', label: '流量统计' },
+		{ key: 'alerts', label: '告警通知' },
+		...(user?.role === 'owner' ? [{ key: 'settings/mail', label: '邮件设置' }] : []),
   ];
 
   return (
