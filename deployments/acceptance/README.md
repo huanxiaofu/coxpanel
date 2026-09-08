@@ -37,6 +37,42 @@ Do not put those values in this repository or pass real credentials. The agent s
 
 The agent image is Linux-amd64-only because its build pins the official sing-box `1.13.21` musl archive. The agent's writable state is confined to the named `agentstate` volume; generated protocol fixtures are the only bind mount and are read-only. Set an explicit unique `P1_ACCEPTANCE_PROJECT` such as `coxpanel-p1-acceptance-run-<id>` for concurrent coordinator runs; cleanup accepts only that prefix and removes only that Compose project and its volumes.
 
+## Explicit public-subscription acceptance
+
+The default launcher remains loopback-only. Public exposure is an explicit,
+test-owned runtime override, not a reason to publish the management frontend.
+`public-subscription.conf` is an optional nginx server for a separate,
+project-labeled gateway: mount it read-only at
+`/etc/nginx/conf.d/default.conf` (the file must be readable by the nginx user),
+attach only the acceptance backend and published networks, and bind its port
+`8080` to the approved public host address and subscription port. Use the
+existing acceptance frontend image with `nginx -g 'daemon off;'`, a read-only
+root filesystem, the existing nginx tmpfs mounts, no capabilities, and
+`no-new-privileges`. The gateway permits only subscription GET/HEAD methods
+(the backend currently returns `405` for HEAD);
+management and root paths return `404`, writes return `403`, and request URLs
+are neither logged nor cached.
+
+The gateway is HTTP-only; subscription bearer material is not encrypted in
+transit. Treat this as a disposable acceptance endpoint, not a production
+transport. TLS needs a separately approved test-owned certificate/domain;
+do not reuse or modify a production reverse proxy to add it.
+
+Publish the agent's Reality port independently, preserve its image, runtime
+environment, state volume, and acceptance networks, then update the node's
+`publicIp` through the authenticated API. Preserve `easyIp` for internal
+management. Save topology, preview it, and explicitly deploy the returned
+version, even if a server-address-only change leaves the runtime hash intact.
+Validate both the subscription URL and a real Reality/Vision request from an
+external host. Store complete bearer URLs only in ignored, mode-0600 files.
+
+Retain the stopped pre-change agent for rollback. To roll back, stop/remove
+only the project-labeled replacement agent and public gateway, restore the
+retained agent name, and restore the old node address followed by
+save-preview-deploy. The optional gateway and retained rollback containers
+are not handled by `down.sh`; verify their project/service labels and remove
+them explicitly before running the default cleanup. Never use a global prune.
+
 The same three root-context `docker build --platform linux/amd64` commands and a no-Compose `docker run` cleanup outline are in `deployments/README.md`. They are coordinator-run instructions, not local execution evidence.
 
 The no-Compose launcher defaults to `https://proxy.golang.org`. A coordinator
