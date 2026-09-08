@@ -45,6 +45,8 @@ func (routerTestConn) Begin() (driver.Tx, error) {
 
 func (routerTestConn) QueryContext(_ context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
 	switch {
+	case strings.Contains(query, "SELECT subscription_defaults FROM node_groups"):
+		return routerTestRows([]string{"subscription_defaults"}, [][]driver.Value{{[]byte(`{}`)}}), nil
 	case strings.Contains(query, "FROM subscriptions WHERE token=$1"):
 		if len(args) != 1 {
 			return nil, errors.New("subscription token argument missing")
@@ -71,8 +73,8 @@ func (routerTestConn) QueryContext(_ context.Context, query string, args []drive
 		return routerTestRows([]string{"node_id"}, [][]driver.Value{{int64(1)}}), nil
 	case strings.Contains(query, "FROM nodes WHERE id=$1"):
 		return routerTestRows(
-			[]string{"id", "name", "type", "public_ip", "easy_ip", "ssh_host", "ssh_user", "ssh_port", "core_version", "status", "last_seen_at", "ext_protocol", "ext_params", "created_at", "updated_at"},
-			[][]driver.Value{{int64(1), "synthetic external", "external", "127.0.0.1", nil, nil, nil, int64(0), nil, "online", nil, "shadowsocks", []byte(`{"server":"127.0.0.1","port":"1","password":"synthetic"}`), time.Unix(1, 0), time.Unix(1, 0)}},
+			[]string{"id", "name", "type", "public_ip", "easy_ip", "ssh_host", "ssh_user", "ssh_port", "core_version", "status", "last_seen_at", "ext_protocol", "ext_params", "agent_capabilities", "config_generation", "created_at", "updated_at"},
+			[][]driver.Value{{int64(1), "synthetic external", "external", "127.0.0.1", nil, nil, nil, int64(0), nil, "online", nil, "shadowsocks", []byte(`{"server":"127.0.0.1","port":"1","password":"synthetic"}`), []byte(`[]`), int64(0), time.Unix(1, 0), time.Unix(1, 0)}},
 		), nil
 	case strings.Contains(query, "FROM subscription_node_overrides"):
 		return routerTestRows([]string{"node_id", "display_name", "sort_order", "icon", "params", "proxy_group"}, nil), nil

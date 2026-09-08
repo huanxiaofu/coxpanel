@@ -14,7 +14,9 @@ import (
 	"github.com/coxpanel/backend/internal/auth"
 	"github.com/coxpanel/backend/internal/config"
 	"github.com/coxpanel/backend/internal/db"
+	"github.com/coxpanel/backend/internal/mail"
 	"github.com/coxpanel/backend/internal/repo"
+	"github.com/coxpanel/backend/internal/traffic"
 )
 
 func main() {
@@ -38,13 +40,29 @@ func main() {
 
 	// 依赖装配
 	authSvc := auth.NewService(cfg.JWTSecret, 24*time.Hour)
+	mailSvc, err := mail.New(pool, mail.Config{Host: cfg.SMTPHost, Port: cfg.SMTPPort, User: cfg.SMTPUser, Password: cfg.SMTPPassword, From: cfg.SMTPFrom, BaseURL: cfg.SubBaseURL, RequireVerification: cfg.RequireEmailVerification}, cfg.EncryptKey)
+	if err != nil {
+		log.Fatal("邮件安全配置无效")
+	}
+	trafficSvc := &traffic.Service{DB: pool}
+	topologyRepo := repo.NewTopologyRepo(pool)
+	topologyRepo.StatsListen = cfg.StatsListen
+	topologyRepo.SetSnapshotSealer(mailSvc)
+	go topologyRepo.RunReleases(ctx)
+	go trafficSvc.Run(ctx)
+	go mailSvc.Run(ctx)
+	go mailSvc.RunAlerts(ctx)
 	deps := api.Deps{
-		AuthSvc:  authSvc,
-		Users:    repo.NewUserRepo(pool),
-		Nodes:    repo.NewNodeRepo(pool),
-		Subs:     repo.NewSubscriptionRepo(pool),
-		Groups:   repo.NewGroupRepo(pool),
-		Topology: repo.NewTopologyRepo(pool),
+		AuthSvc:     authSvc,
+		Users:       repo.NewUserRepo(pool),
+		Nodes:       repo.NewNodeRepo(pool),
+		Subs:        repo.NewSubscriptionRepo(pool),
+		Groups:      repo.NewGroupRepo(pool),
+		Topology:    topologyRepo,
+		Traffic:     trafficSvc,
+		Mail:        mailSvc,
+		Templates:   repo.NewTemplateRepo(pool),
+		StatsListen: cfg.StatsListen,
 	}
 
 	srv := &http.Server{

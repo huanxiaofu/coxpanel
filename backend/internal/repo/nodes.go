@@ -37,11 +37,12 @@ func (r *NodeRepo) AuthenticateAgent(ctx context.Context, nodeID int64, credenti
 // scanNode 统一扫描节点行。
 func scanNode(sc interface{ Scan(...any) error }) (*models.Node, error) {
 	var n models.Node
-	var extParams []byte
+	var extParams, capabilities []byte
 	var publicIP, easyIP, sshHost, sshUser, coreVersion, extProtocol sql.NullString
 	var sshPort64 int64
+	var configGeneration int64
 	var lastSeenT sql.NullTime
-	err := sc.Scan(&n.ID, &n.Name, &n.Type, &publicIP, &easyIP, &sshHost, &sshUser, &sshPort64, &coreVersion, &n.Status, &lastSeenT, &extProtocol, &extParams, &n.CreatedAt, &n.UpdatedAt)
+	err := sc.Scan(&n.ID, &n.Name, &n.Type, &publicIP, &easyIP, &sshHost, &sshUser, &sshPort64, &coreVersion, &n.Status, &lastSeenT, &extProtocol, &extParams, &capabilities, &configGeneration, &n.CreatedAt, &n.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -58,6 +59,15 @@ func scanNode(sc interface{ Scan(...any) error }) (*models.Node, error) {
 	if len(extParams) > 0 {
 		n.ExtParams = json.RawMessage(extParams)
 	}
+	if len(capabilities) > 0 {
+		if err := json.Unmarshal(capabilities, &n.AgentCapabilities); err != nil {
+			return nil, err
+		}
+	}
+	if n.AgentCapabilities == nil {
+		n.AgentCapabilities = []string{}
+	}
+	n.ConfigGeneration = configGeneration
 	return &n, nil
 }
 
@@ -123,7 +133,7 @@ func (r *NodeRepo) CreateWithAgentCredential(ctx context.Context, n *models.Node
 // List 列出全部节点。
 func (r *NodeRepo) List(ctx context.Context) ([]models.Node, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, name, type, public_ip, easy_ip, ssh_host, ssh_user, ssh_port, core_version, status, last_seen_at, ext_protocol, ext_params, created_at, updated_at
+		SELECT id, name, type, public_ip, easy_ip, ssh_host, ssh_user, ssh_port, core_version, status, last_seen_at, ext_protocol, ext_params, agent_capabilities, config_generation, created_at, updated_at
 		FROM nodes ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -143,7 +153,7 @@ func (r *NodeRepo) List(ctx context.Context) ([]models.Node, error) {
 // Get 取单个节点。
 func (r *NodeRepo) Get(ctx context.Context, id int64) (*models.Node, error) {
 	row := r.db.QueryRowContext(ctx, `
-		SELECT id, name, type, public_ip, easy_ip, ssh_host, ssh_user, ssh_port, core_version, status, last_seen_at, ext_protocol, ext_params, created_at, updated_at
+		SELECT id, name, type, public_ip, easy_ip, ssh_host, ssh_user, ssh_port, core_version, status, last_seen_at, ext_protocol, ext_params, agent_capabilities, config_generation, created_at, updated_at
 		FROM nodes WHERE id=$1`, id)
 	return scanNode(row)
 }
@@ -159,7 +169,7 @@ func (r *NodeRepo) Update(ctx context.Context, id int64, n *models.Node) error {
 		return err
 	}
 	result, err := tx.ExecContext(ctx, `
-		UPDATE nodes SET name=$2, public_ip=$3, easy_ip=$4, ssh_host=$5, ssh_user=$6, ssh_port=$7, ext_protocol=$8, ext_params=$9, updated_at=now()
+		UPDATE nodes SET name=$2, public_ip=$3, easy_ip=$4, ssh_host=$5, ssh_user=$6, ssh_port=$7, ext_protocol=$8, ext_params=$9, config_generation=config_generation+1, updated_at=now()
 		WHERE id=$1`,
 		id, n.Name, nullStr(n.PublicIP), nullStr(n.EasyIP), nullStr(n.SSHHost), nullStr(n.SSHUser), n.SSHPort, nullStr(n.ExtProtocol), nullJSON(n.ExtParams))
 	if err != nil {
@@ -228,8 +238,8 @@ func (r *NodeRepo) CreateInbound(ctx context.Context, ib *models.Inbound) (int64
 	}
 	var id int64
 	err = tx.QueryRowContext(ctx, `
-		INSERT INTO inbounds (node_id, name, protocol, role, listen_addr, listen_port, config, min_client_ver)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+		INSERT INTO inbounds (node_id, name, protocol, role, listen_addr, listen_port, config, min_client_ver,egress_mode)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,CASE WHEN $4='relay' THEN 'chain' ELSE 'direct' END) RETURNING id`,
 		ib.NodeID, ib.Name, ib.Protocol, ib.Role, ib.ListenAddr, ib.ListenPort, nullJSON(ib.Config), ib.MinClientVer).Scan(&id)
 	if err != nil {
 		return 0, err

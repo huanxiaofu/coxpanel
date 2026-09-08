@@ -17,6 +17,7 @@ import (
 	"github.com/coxpanel/backend/internal/auth"
 	"github.com/coxpanel/backend/internal/models"
 	"github.com/coxpanel/backend/internal/repo"
+	"github.com/go-chi/chi/v5"
 )
 
 // NodeHandler 节点管理 handler。
@@ -287,11 +288,43 @@ func (h *NodeHandler) ListInbounds(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	list, err := h.Nodes.ListInbounds(r.Context(), nodeID)
+	if err == nil {
+		if revisions, revisionErr := h.Nodes.InboundRevisions(r.Context(), nodeID); revisionErr == nil {
+			for index := range list {
+				list[index].Revision = revisions[list[index].ID].Revision
+				list[index].EgressMode = revisions[list[index].ID].EgressMode
+			}
+		}
+	}
 	if err != nil {
 		middleware.Err(w, http.StatusInternalServerError, "internal", "查询失败")
 		return
 	}
 	middleware.JSON(w, http.StatusOK, list)
+}
+
+func (h *NodeHandler) UpdateInbound(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		models.Inbound
+		ExpectedRevision int64 `json:"expectedRevision"`
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&request) != nil {
+		middleware.Err(w, 422, "invalid_inbound", "入站字段无效")
+		return
+	}
+	request.NodeID, _ = strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	request.ID, _ = strconv.ParseInt(chi.URLParam(r, "inboundId"), 10, 64)
+	if request.Name == "" || request.ListenPort < 1 || request.ListenPort > 65535 || request.EgressMode == "" || validateInbound(request.Protocol, request.Role, request.Config) != nil {
+		middleware.Err(w, 422, "invalid_inbound", "入站配置无效")
+		return
+	}
+	if err := h.Nodes.UpdateInbound(r.Context(), request.Inbound, request.ExpectedRevision); err != nil {
+		writeTopologyError(w, err)
+		return
+	}
+	middleware.JSON(w, 200, map[string]any{"revision": request.ExpectedRevision + 1, "requiresPreview": true})
 }
 
 // DeleteInbound 删除入站。

@@ -11,6 +11,8 @@ import (
 
 	"github.com/coxpanel/backend/internal/api/middleware"
 	"github.com/coxpanel/backend/internal/auth"
+	"github.com/coxpanel/backend/internal/mail"
+	"github.com/coxpanel/backend/internal/models"
 	"github.com/coxpanel/backend/internal/repo"
 )
 
@@ -18,17 +20,19 @@ import (
 type Handler struct {
 	Auth  *auth.Service
 	Users *repo.UserRepo
+	Mail  *mail.Service
 }
 
 // Register 注册（需邀请码）。
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-		Email    string `json:"email"`
-		Invite   string `json:"inviteCode"`
+		Username           string `json:"username"`
+		Password           string `json:"password"`
+		Email              string `json:"email"`
+		Invite             string `json:"inviteCode"`
+		RegistrationTicket string `json:"registrationTicket"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16384)).Decode(&req); err != nil {
 		middleware.Err(w, http.StatusBadRequest, "bad_request", "请求体无效")
 		return
 	}
@@ -42,7 +46,16 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		middleware.Err(w, http.StatusInternalServerError, "internal", "密码处理失败")
 		return
 	}
-	u, _, err := h.Users.RegisterWithInvite(r.Context(), req.Username, hash, req.Email, req.Invite)
+	var u *models.User
+	if h.Mail != nil && h.Mail.Config.RequireVerification {
+		u, err = h.Mail.Register(r.Context(), req.Username, hash, req.Email, req.Invite, req.RegistrationTicket)
+		if errors.Is(err, mail.ErrInvalid) {
+			middleware.Err(w, http.StatusUnprocessableEntity, "email_verification_required", "请先验证邮箱，验证票据必须与邮箱和邀请码匹配")
+			return
+		}
+	} else {
+		u, _, err = h.Users.RegisterWithInvite(r.Context(), req.Username, hash, req.Email, req.Invite)
+	}
 	if errors.Is(err, repo.ErrInvalidInvite) {
 		middleware.Err(w, http.StatusForbidden, "invalid_invite", "邀请码无效或已用完")
 		return

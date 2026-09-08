@@ -13,6 +13,7 @@ import (
 
 	"github.com/coxpanel/backend/internal/api/middleware"
 	"github.com/coxpanel/backend/internal/models"
+	"github.com/coxpanel/backend/internal/traffic"
 	sharedconfig "github.com/coxpanel/shared/config"
 	"github.com/coxpanel/shared/contract"
 )
@@ -35,14 +36,25 @@ type DeploymentStore interface {
 
 // Handler agent 端点依赖。
 type Handler struct {
-	Nodes       NodeStore
-	Users       UserCredentialStore
-	Deployments DeploymentStore
+	Nodes        NodeStore
+	Users        UserCredentialStore
+	Deployments  DeploymentStore
+	DeploymentV2 *DeploymentHandler
+	Traffic      *traffic.Service
+	StatsListen  string
 }
 
 // GetConfig agent 拉取本节点完整配置。
 // 认证：X-Node-Id + X-Agent-Credential，凭据只绑定一个节点。
 func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("phase") != "" || r.URL.Query().Get("releaseId") != "" {
+		if h == nil || h.DeploymentV2 == nil {
+			middleware.Err(w, http.StatusServiceUnavailable, "deployment_unavailable", "部署服务不可用")
+			return
+		}
+		h.DeploymentV2.GetConfig(w, r)
+		return
+	}
 	nodeID, ok := h.authenticate(w, r)
 	if !ok {
 		return
@@ -97,6 +109,7 @@ func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
 		middleware.Err(w, http.StatusUnprocessableEntity, "invalid_config", "配置生成失败")
 		return
 	}
+	runtimeNode.TrafficStatsListen = h.StatsListen
 	rendered, err := sharedconfig.RenderRuntime(runtimeNode)
 	if err != nil {
 		middleware.Err(w, http.StatusUnprocessableEntity, "invalid_config", "配置生成失败")
@@ -263,11 +276,28 @@ func (h *Handler) Heartbeat(w http.ResponseWriter, r *http.Request) {
 		middleware.Err(w, http.StatusForbidden, "node_mismatch", "心跳节点与凭据不匹配")
 		return
 	}
+	if store, ok := h.Nodes.(interface {
+		UpdateAgentCapabilities(context.Context, int64, []string, int64) error
+	}); ok {
+		if err := store.UpdateAgentCapabilities(r.Context(), nodeID, hb.Capabilities, hb.ConfigGeneration); err != nil {
+			middleware.Err(w, 422, "invalid_capabilities", "能力上报无效")
+			return
+		}
+	}
 	if err := h.Nodes.UpdateStatus(r.Context(), hb.NodeID, "online", hb.CoreVersion); err != nil {
 		middleware.Err(w, http.StatusInternalServerError, "internal", "状态更新失败")
 		return
 	}
-	middleware.JSON(w, http.StatusOK, map[string]any{"ok": true})
+	var pending *contract.PendingDeployment
+	var err error
+	if h.DeploymentV2 != nil {
+		pending, err = h.DeploymentV2.Pending(r.Context(), nodeID)
+		if err != nil {
+			middleware.Err(w, http.StatusInternalServerError, "deployment_pending_unavailable", "部署状态查询失败")
+			return
+		}
+	}
+	middleware.JSON(w, http.StatusOK, contract.HeartbeatResponse{OK: true, PendingDeployment: pending})
 }
 
 // ReportTraffic agent 流量上报（P1 存根：接受但暂不入库，P2 接入 traffic_records）。
@@ -276,16 +306,53 @@ func (h *Handler) ReportTraffic(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	var tr contract.TrafficReport
-	if err := json.NewDecoder(r.Body).Decode(&tr); err != nil {
+	var raw json.RawMessage
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 2<<20)).Decode(&raw); err != nil {
 		middleware.Err(w, http.StatusBadRequest, "bad_request", "请求体无效")
+		return
+	}
+	var header struct {
+		SchemaVersion string `json:"schemaVersion"`
+	}
+	if json.Unmarshal(raw, &header) != nil {
+		middleware.Err(w, 400, "bad_request", "请求体无效")
+		return
+	}
+	if header.SchemaVersion == "traffic/v2" {
+		var report traffic.Report
+		if json.Unmarshal(raw, &report) != nil {
+			middleware.Err(w, 422, "traffic_invalid", "流量数据无效")
+			return
+		}
+		if h.Traffic == nil {
+			middleware.Err(w, 503, "traffic_unavailable", "流量存储不可用")
+			return
+		}
+		receipt, err := h.Traffic.Ingest(r.Context(), nodeID, report)
+		if err != nil {
+			status, code := 500, "internal"
+			if errors.Is(err, traffic.ErrInvalid) {
+				status, code = 422, "traffic_invalid"
+			}
+			if errors.Is(err, traffic.ErrConflict) {
+				status, code = 409, "traffic_sequence_conflict"
+			}
+			middleware.Err(w, status, code, "流量上报未接受")
+			return
+		}
+		middleware.JSON(w, 200, receipt)
+		return
+	}
+	var tr contract.TrafficReport
+	if json.Unmarshal(raw, &tr) != nil {
+		middleware.Err(w, 400, "bad_request", "请求体无效")
 		return
 	}
 	if tr.NodeID <= 0 || tr.NodeID != nodeID {
 		middleware.Err(w, http.StatusForbidden, "node_mismatch", "流量节点与凭据不匹配")
 		return
 	}
-	middleware.JSON(w, http.StatusOK, map[string]any{"ok": true, "note": "P2 接入流量统计"})
+	middleware.JSON(w, http.StatusOK, map[string]any{"ok": true, "persisted": false, "note": "v1 不计量，请升级 traffic/v2"})
 }
 
 func (h *Handler) authenticate(w http.ResponseWriter, r *http.Request) (int64, bool) {

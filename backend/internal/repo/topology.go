@@ -13,7 +13,11 @@ import (
 )
 
 // TopologyRepo persists drafts and explicit deployment snapshots.
-type TopologyRepo struct{ db *sql.DB }
+type TopologyRepo struct {
+	db          *sql.DB
+	sealer      SnapshotSealer
+	StatsListen string
+}
 
 func NewTopologyRepo(db *sql.DB) *TopologyRepo { return &TopologyRepo{db: db} }
 

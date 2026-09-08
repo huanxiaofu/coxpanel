@@ -20,7 +20,9 @@ import (
 	"github.com/coxpanel/backend/internal/auth"
 	"github.com/coxpanel/backend/internal/bootstrap"
 	"github.com/coxpanel/backend/internal/db"
+	"github.com/coxpanel/backend/internal/mail"
 	"github.com/coxpanel/backend/internal/repo"
+	"github.com/coxpanel/backend/internal/traffic"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 )
@@ -180,13 +182,22 @@ func newPanelHarness(t *testing.T) *panelHarness {
 		auth:     auth.NewService(secret, time.Hour),
 		client:   &http.Client{Timeout: 10 * time.Second},
 	}
+	topologyRepo := repo.NewTopologyRepo(harness.db)
+	sealer, err := mail.New(harness.db, mail.Config{}, strings.Repeat("a7", 32))
+	if err != nil {
+		t.Fatal("synthetic sealer failed")
+	}
+	topologyRepo.SetSnapshotSealer(sealer)
 	harness.server = httptest.NewServer(api.NewRouter(api.Deps{
-		AuthSvc:  harness.auth,
-		Users:    repo.NewUserRepo(harness.db),
-		Nodes:    repo.NewNodeRepo(harness.db),
-		Subs:     repo.NewSubscriptionRepo(harness.db),
-		Groups:   repo.NewGroupRepo(harness.db),
-		Topology: repo.NewTopologyRepo(harness.db),
+		AuthSvc:   harness.auth,
+		Users:     repo.NewUserRepo(harness.db),
+		Nodes:     repo.NewNodeRepo(harness.db),
+		Subs:      repo.NewSubscriptionRepo(harness.db),
+		Groups:    repo.NewGroupRepo(harness.db),
+		Topology:  topologyRepo,
+		Templates: repo.NewTemplateRepo(harness.db),
+		Mail:      sealer,
+		Traffic:   &traffic.Service{DB: harness.db},
 	}))
 	t.Cleanup(harness.server.Close)
 	return harness

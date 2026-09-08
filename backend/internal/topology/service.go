@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/coxpanel/backend/internal/models"
 	"github.com/coxpanel/backend/internal/repo"
@@ -47,9 +48,11 @@ type Service struct {
 }
 
 type Preview struct {
-	NodeID  int64           `json:"nodeId"`
-	Version string          `json:"version"`
-	Config  json.RawMessage `json:"config"`
+	PreviewID string          `json:"previewId,omitempty"`
+	NodeID    int64           `json:"nodeId"`
+	Version   string          `json:"version"`
+	Config    json.RawMessage `json:"config"`
+	ExpiresAt time.Time       `json:"expiresAt,omitempty"`
 }
 
 func NewService(nodes NodeStore, drafts DraftStore) *Service {

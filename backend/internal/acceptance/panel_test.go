@@ -33,10 +33,17 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const (
-	acceptanceMihomoPath  = "/work/tools/mihomo"
-	acceptanceSingboxPath = "/workspace/tmp/sing-box-audit/sing-box-1.13.21-linux-amd64/sing-box"
+var (
+	acceptanceMihomoPath  = acceptanceBinaryPath("P2_TEST_MIHOMO", "/work/tools/mihomo")
+	acceptanceSingboxPath = acceptanceBinaryPath("COXPANEL_REAL_SINGBOX", "/workspace/tmp/sing-box-audit/sing-box-1.13.21-linux-amd64/sing-box")
 )
+
+func acceptanceBinaryPath(name, fallback string) string {
+	if value := os.Getenv(name); value != "" {
+		return value
+	}
+	return fallback
+}
 
 func TestPanelDatabaseAPIAndProtocolAcceptance(t *testing.T) {
 	harness := newPanelHarness(t)
@@ -121,6 +128,11 @@ func TestPanelDatabaseAPIAndProtocolAcceptance(t *testing.T) {
 	startAcceptanceSingbox(t, deployed.Singbox)
 	for _, protocol := range []string{"vless-reality", "shadowsocks", "hysteria2"} {
 		runPanelProtocolExchange(t, userOneBody, protocol, target.URL, marker, serverPSK)
+	}
+	harness.doRaw(http.MethodPut, fmt.Sprintf("/api/my/subscriptions/%d", userOneSubscription.ID), userOne.Token, map[string]any{"expectedRevision": 1, "format": "sing-box", "templateId": nil}, 200)
+	singboxClient := harness.subscriptionBody(userOneSubscription.Token, "")
+	for _, protocol := range []string{"vless", "shadowsocks", "hysteria2"} {
+		runP2SingboxClientExchange(t, singboxClient, protocol, target.URL, marker)
 	}
 
 	previousVersion := deployed.Version
@@ -302,8 +314,7 @@ func TestPanelTwoHopRouteAndLandingFailureAcceptance(t *testing.T) {
 		"toNodeId":      landing.ID,
 		"toInboundId":   landingInbound,
 	}})
-	sourcePreview := harness.previewTopology(owner, source.ID)
-	harness.deployTopology(owner, source.ID, sourcePreview.Version)
+	harness.deployChainWithFixtureAcks(owner, source.ID, []int64{landing.ID, source.ID})
 	landingDocument := harness.agentConfig(landing.ID, landing.AgentCredential)
 	sourceDocument := harness.agentConfig(source.ID, source.AgentCredential)
 	if err := runAcceptanceSingboxCheck(t, landingDocument.Singbox); err != nil {

@@ -41,7 +41,8 @@ func RequireAuth(authSvc *auth.Service, users UserStore) func(http.Handler) http
 				return
 			}
 			user, err := users.GetUser(r.Context(), claims.UserID)
-			if err != nil || user == nil || !user.Active || (user.ExpireAt != nil && !time.Now().Before(*user.ExpireAt)) {
+			historyAccess := r.URL.Path == "/api/me" || r.URL.Path == "/api/my/traffic" || r.URL.Path == "/api/my/notifications" || r.URL.Path == "/api/my/notification-preferences" || r.URL.Path == "/api/my/email-verifications"
+			if err != nil || user == nil || !user.Active || (!historyAccess && user.ExpireAt != nil && !time.Now().Before(*user.ExpireAt)) {
 				writeErr(w, http.StatusUnauthorized, "inactive_user", "用户不存在或已停用")
 				return
 			}
@@ -50,6 +51,17 @@ func RequireAuth(authSvc *auth.Service, users UserStore) func(http.Handler) http
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+func RequireOwner(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user := UserFrom(r.Context())
+		if user == nil || user.Role != "owner" {
+			writeErr(w, http.StatusForbidden, "forbidden", "需要 owner 权限")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // RequireAdmin 要求 admin/owner 角色（在 RequireAuth 之后使用）。

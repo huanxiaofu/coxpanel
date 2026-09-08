@@ -200,6 +200,10 @@ func prepareP1IntegrationSchema(t *testing.T, resource *p1IntegrationDB) {
 		"0008_auth_authorization.up.sql",
 		"0009_subscription_inbound_overrides.up.sql",
 		"0010_control_plane.up.sql",
+		"0011_p2_topology.up.sql",
+		"0012_p2_templates_overrides.up.sql",
+		"0013_p2_traffic.up.sql",
+		"0014_p2_notifications_mail.up.sql",
 	}
 	if fmt.Sprint(names) != fmt.Sprint(expected) {
 		t.Fatalf("migration ledger = %v, want %v", names, expected)
@@ -261,9 +265,13 @@ func validateP1MigrationFiles(t *testing.T) {
 		"0008_auth_authorization.up.sql",
 		"0009_subscription_inbound_overrides.up.sql",
 		"0010_control_plane.up.sql",
+		"0011_p2_topology.up.sql",
+		"0012_p2_templates_overrides.up.sql",
+		"0013_p2_traffic.up.sql",
+		"0014_p2_notifications_mail.up.sql",
 	}
 	if fmt.Sprint(names) != fmt.Sprint(expected) {
-		t.Fatalf("migration files = %v, want exactly 0001-0010", names)
+		t.Fatalf("migration files = %v, want exactly 0001-0014", names)
 	}
 	unsafeDDL := regexp.MustCompile(`(?im)^\s*(?:CREATE|ALTER|DROP)\s+(?:DATABASE|SCHEMA)\b|^\s*SET\s+(?:(?:SESSION|LOCAL)\s+)?(?:search_path|schema)\b`)
 	for _, name := range expected {

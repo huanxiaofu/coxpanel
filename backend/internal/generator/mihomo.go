@@ -27,11 +27,12 @@ type Proxy struct {
 
 // OverrideData 用户覆写数据。
 type OverrideData struct {
-	DisplayName string
-	SortOrder   int
-	Icon        string
-	Params      map[string]any // 覆写参数
-	ProxyGroup  string
+	DisplayName  string
+	SortOrder    int
+	SortOrderSet bool
+	Icon         string
+	Params       map[string]any // 覆写参数
+	ProxyGroup   string
 }
 
 type mihomoDocument struct {
@@ -395,6 +396,12 @@ func ss2022SubscriptionCredential(params map[string]any, userCredential string) 
 func hysteriaObfs(params map[string]any) (string, string) {
 	obfs := strParam(params, "obfs")
 	obfsPassword := strParam(params, "obfsPassword")
+	if value, ok := params["obfs"].(map[string]any); ok {
+		obfs = strParam(value, "type")
+		if obfsPassword == "" {
+			obfsPassword = strParam(value, "password")
+		}
+	}
 	if obfs == "" && obfsPassword != "" {
 		obfs = "salamander"
 	}
@@ -437,8 +444,13 @@ func inboundParams(raw json.RawMessage) (map[string]any, error) {
 func SanitizeOverrideParams(protocol string, input map[string]any) map[string]any {
 	result := make(map[string]any)
 	for key, value := range input {
+		if ValidateOverrideParams("mihomo", protocol, map[string]any{key: value}) != nil {
+			continue
+		}
 		switch key {
-		case "sni", "server", "obfs", "obfsPassword":
+		case "flow":
+			result[key] = value
+		case "sni", "server", "obfs", "obfsPassword", "fingerprint":
 			if text, ok := value.(string); ok && safeOverrideString(text) {
 				result[key] = text
 			}
@@ -515,6 +527,11 @@ func strParam(m map[string]any, key string) string {
 }
 
 func strParamDef(m map[string]any, key, def string) string {
+	if key == "flow" {
+		if value, exists := m[key].(string); exists {
+			return value
+		}
+	}
 	if value := strParam(m, key); value != "" {
 		return value
 	}

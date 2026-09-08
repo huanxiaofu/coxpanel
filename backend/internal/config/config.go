@@ -16,28 +16,32 @@ type Config struct {
 	// 密钥加密主密钥（AES-GCM，32 字节 hex）
 	EncryptKey string
 	// SMTP
-	SMTPHost     string
-	SMTPPort     int
-	SMTPUser     string
-	SMTPPassword string
-	SMTPFrom     string
+	SMTPHost                 string
+	SMTPPort                 int
+	SMTPUser                 string
+	SMTPPassword             string
+	SMTPFrom                 string
+	RequireEmailVerification bool
 	// 订阅公开地址前缀
-	SubBaseURL string
+	SubBaseURL  string
+	StatsListen string
 }
 
 // Load 从环境变量加载，缺关键项报错。
 func Load() (*Config, error) {
 	c := &Config{
-		Addr:         getenv("COXPANEL_ADDR", ":8080"),
-		DBURL:        os.Getenv("COXPANEL_DB_URL"),
-		JWTSecret:    os.Getenv("COXPANEL_JWT_SECRET"),
-		EncryptKey:   os.Getenv("COXPANEL_ENCRYPT_KEY"),
-		SMTPHost:     os.Getenv("COXPANEL_SMTP_HOST"),
-		SMTPPort:     getenvInt("COXPANEL_SMTP_PORT", 465),
-		SMTPUser:     os.Getenv("COXPANEL_SMTP_USER"),
-		SMTPPassword: os.Getenv("COXPANEL_SMTP_PASSWORD"),
-		SMTPFrom:     os.Getenv("COXPANEL_SMTP_FROM"),
-		SubBaseURL:   getenv("COXPANEL_SUB_BASE_URL", "http://localhost:8080"),
+		Addr:                     getenv("COXPANEL_ADDR", ":8080"),
+		DBURL:                    os.Getenv("COXPANEL_DB_URL"),
+		JWTSecret:                os.Getenv("COXPANEL_JWT_SECRET"),
+		EncryptKey:               os.Getenv("COXPANEL_ENCRYPT_KEY"),
+		SMTPHost:                 os.Getenv("COXPANEL_SMTP_HOST"),
+		SMTPPort:                 getenvInt("COXPANEL_SMTP_PORT", 587),
+		SMTPUser:                 os.Getenv("COXPANEL_SMTP_USER"),
+		SMTPPassword:             os.Getenv("COXPANEL_SMTP_PASSWORD"),
+		SMTPFrom:                 os.Getenv("COXPANEL_SMTP_FROM"),
+		RequireEmailVerification: os.Getenv("COXPANEL_REQUIRE_EMAIL_VERIFICATION") == "true",
+		SubBaseURL:               getenv("COXPANEL_SUB_BASE_URL", "http://localhost:8080"),
+		StatsListen:              os.Getenv("COXPANEL_STATS_LISTEN"),
 	}
 	if c.DBURL == "" {
 		return nil, fmt.Errorf("COXPANEL_DB_URL 未设置")

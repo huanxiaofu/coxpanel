@@ -4,7 +4,6 @@ package sub
 import (
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -64,15 +63,19 @@ var (
 
 // Handler 订阅端点依赖。
 type Handler struct {
-	Subs   SubscriptionStore
-	Nodes  NodeStore
-	Groups GroupStore
-	Auth   *auth.Service
-	Users  UserStore
+	Subs      SubscriptionStore
+	Nodes     NodeStore
+	Groups    GroupStore
+	Auth      *auth.Service
+	Users     UserStore
+	Templates interface {
+		ResolveVersion(context.Context, *int64, *int) (*repo.TemplateVersion, error)
+	}
 }
 
 // Serve 处理 GET /sub/:token。
 func (h *Handler) Serve(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "private, no-store")
 	ctx := r.Context()
 	token := r.PathValue("token")
 	if token == "" {
@@ -116,7 +119,8 @@ func (h *Handler) Serve(w http.ResponseWriter, r *http.Request) {
 	for _, nid := range nodeIDs {
 		n, err := h.Nodes.Get(ctx, nid)
 		if err != nil {
-			continue
+			middleware.Err(w, 500, "internal", "节点加载失败")
+			return
 		}
 		switch n.Type {
 		case "external":
@@ -124,7 +128,8 @@ func (h *Handler) Serve(w http.ResponseWriter, r *http.Request) {
 		case "managed":
 			ibs, err := h.Nodes.ListInbounds(ctx, nid)
 			if err != nil {
-				continue
+				middleware.Err(w, 500, "internal", "入站加载失败")
+				return
 			}
 			for i := range ibs {
 				if ibs[i].Role == "entry" {
@@ -146,27 +151,63 @@ func (h *Handler) Serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var body []byte
-	switch s.Format {
-	case "mihomo", "":
-		body, err = generator.GenerateMihomo(proxies, s.Name)
-		if err != nil {
-			middleware.Err(w, http.StatusInternalServerError, "internal", "生成失败: "+err.Error())
+	var definition json.RawMessage
+	if s.TemplateID != nil {
+		if h.Templates == nil {
+			middleware.Err(w, 422, "template_unavailable", "模板不可用")
 			return
 		}
-		w.Header().Set("Content-Type", "text/yaml; charset=utf-8")
-	case "base64":
-		raw, gerr := generator.GenerateURIList(proxies)
-		if gerr != nil {
-			middleware.Err(w, http.StatusInternalServerError, "internal", "生成失败")
+		version, resolveErr := h.Templates.ResolveVersion(ctx, s.TemplateID, s.TemplateVersion)
+		if resolveErr != nil || version == nil || version.Format != "" && version.Format != s.Format {
+			middleware.Err(w, 422, "template_unavailable", "模板不可用")
 			return
 		}
-		body = []byte(base64.StdEncoding.EncodeToString(raw))
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	default:
-		middleware.Err(w, http.StatusNotImplemented, "not_implemented", "该格式暂不支持")
+		definition = version.Definition
+	}
+	if store, ok := h.Subs.(interface {
+		GroupDefaults(context.Context, int64) (json.RawMessage, error)
+	}); ok && s.NodeGroupID != nil {
+		defaults, loadErr := store.GroupDefaults(ctx, *s.NodeGroupID)
+		if loadErr != nil {
+			middleware.Err(w, 500, "internal", "默认值加载失败")
+			return
+		}
+		if len(defaults) > 2 {
+			for index := range proxies {
+				patch := generator.ClientOverride{}
+				if value := proxies[index].Override; value != nil {
+					patch.Params = value.Params
+					if value.DisplayName != "" {
+						patch.DisplayName = &value.DisplayName
+					}
+					if value.Icon != "" {
+						patch.Icon = &value.Icon
+					}
+					if value.ProxyGroup != "" {
+						patch.ProxyGroup = &value.ProxyGroup
+					}
+					if value.SortOrderSet || value.SortOrder != 0 {
+						patch.SortOrder = &value.SortOrder
+					}
+				}
+				resolved, _ := generator.ResolveClientOverride(proxies[index], definition, defaults, patch, s.Name)
+				proxies[index].Override = &resolved
+			}
+		}
+	}
+	body, err := generator.GenerateClient(s.Format, proxies, s.Name, definition)
+	if err != nil {
+		middleware.Err(w, 422, "generation_failed", "客户端配置生成失败")
 		return
 	}
+	contentType := "text/yaml; charset=utf-8"
+	if s.Format == "sing-box" {
+		contentType = "application/json; charset=utf-8"
+	}
+	if s.Format == "base64" {
+		contentType = "text/plain; charset=utf-8"
+	}
+	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Disposition", "attachment; filename=subscription")
 	w.Write(body)
 }
@@ -291,11 +332,12 @@ func (h *Handler) applyOverrides(ctx context.Context, subID int64, proxies []gen
 			}
 			params = generator.SanitizeOverrideParams("", params)
 			proxies[i].Override = &generator.OverrideData{
-				DisplayName: ov.DisplayName,
-				SortOrder:   ov.SortOrder,
-				Icon:        ov.Icon,
-				Params:      params,
-				ProxyGroup:  ov.ProxyGroup,
+				DisplayName:  ov.DisplayName,
+				SortOrder:    ov.SortOrder,
+				SortOrderSet: ov.SortOrderSet,
+				Icon:         ov.Icon,
+				Params:       params,
+				ProxyGroup:   ov.ProxyGroup,
 			}
 		}
 	}

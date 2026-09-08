@@ -559,17 +559,32 @@ func NewSubscriptionRepo(db *sql.DB) *SubscriptionRepo { return &SubscriptionRep
 
 // Create 创建订阅。
 func (r *SubscriptionRepo) Create(ctx context.Context, s *models.Subscription) (int64, error) {
+	if err := ValidateSubscriptionSelection(s.Format, s.TemplateID, s.TemplateVersion); err != nil {
+		return 0, err
+	}
+	if err := r.validateTemplateForCreate(ctx, s); err != nil {
+		return 0, err
+	}
 	var id int64
 	err := r.db.QueryRowContext(ctx, `
-		INSERT INTO subscriptions (user_id, name, token, format, node_group_id, template_id)
-		VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-		s.UserID, s.Name, s.Token, s.Format, s.NodeGroupID, s.TemplateID).Scan(&id)
+		INSERT INTO subscriptions (user_id, name, token, format, node_group_id, template_id, template_version)
+		VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+		s.UserID, s.Name, s.Token, s.Format, s.NodeGroupID, s.TemplateID, s.TemplateVersion).Scan(&id)
+	if isP2CompatibilityError(err) {
+		err = r.db.QueryRowContext(ctx, `
+			INSERT INTO subscriptions (user_id, name, token, format, node_group_id, template_id)
+			VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
+			s.UserID, s.Name, s.Token, s.Format, s.NodeGroupID, s.TemplateID).Scan(&id)
+	}
 	return id, err
 }
 
 func (r *SubscriptionRepo) CreateForUser(ctx context.Context, s *models.Subscription) (int64, error) {
-	if s.NodeGroupID == nil {
+	if s == nil || s.NodeGroupID == nil {
 		return 0, ErrNodeNotAuthorized
+	}
+	if id, err := createSubscriptionForUserP2(ctx, r.db, s); err == nil || !isP2CompatibilityError(err) {
+		return id, err
 	}
 	var id int64
 	err := r.db.QueryRowContext(ctx, `
@@ -594,63 +609,28 @@ func (r *SubscriptionRepo) CreateForUser(ctx context.Context, s *models.Subscrip
 
 // GetByToken 按 token 取订阅。
 func (r *SubscriptionRepo) GetByToken(ctx context.Context, token string) (*models.Subscription, error) {
-	var s models.Subscription
-	err := r.db.QueryRowContext(ctx, `
-		SELECT id, user_id, name, token, format, node_group_id, template_id, created_at, updated_at
-		FROM subscriptions WHERE token=$1`, token).
-		Scan(&s.ID, &s.UserID, &s.Name, &s.Token, &s.Format, &s.NodeGroupID, &s.TemplateID, &s.CreatedAt, &s.UpdatedAt)
-	if err != nil {
-		return nil, err
-	}
-	return &s, nil
+	return getSubscriptionCompat(ctx, r.db, `WHERE token=$1`, token)
 }
 
 // GetByID 按 ID 取订阅。
 func (r *SubscriptionRepo) GetByID(ctx context.Context, id int64) (*models.Subscription, error) {
-	var s models.Subscription
-	err := r.db.QueryRowContext(ctx, `
-		SELECT id, user_id, name, token, format, node_group_id, template_id, created_at, updated_at
-		FROM subscriptions WHERE id=$1`, id).
-		Scan(&s.ID, &s.UserID, &s.Name, &s.Token, &s.Format, &s.NodeGroupID, &s.TemplateID, &s.CreatedAt, &s.UpdatedAt)
-	if err != nil {
-		return nil, err
-	}
-	return &s, nil
+	return getSubscriptionCompat(ctx, r.db, `WHERE id=$1`, id)
 }
 
 func (r *SubscriptionRepo) GetByIDForUser(ctx context.Context, userID, id int64) (*models.Subscription, error) {
-	var s models.Subscription
-	err := r.db.QueryRowContext(ctx, `
-		SELECT id, user_id, name, token, format, node_group_id, template_id, created_at, updated_at
-		FROM subscriptions WHERE id=$1 AND user_id=$2`, id, userID).
-		Scan(&s.ID, &s.UserID, &s.Name, &s.Token, &s.Format, &s.NodeGroupID, &s.TemplateID, &s.CreatedAt, &s.UpdatedAt)
-	if errors.Is(err, sql.ErrNoRows) {
+	s, err := getSubscriptionCompat(ctx, r.db, `WHERE id=$1 AND user_id=$2`, id, userID)
+	if errors.Is(err, sql.ErrNoRows) || errors.Is(err, ErrTemplateNotFound) {
 		return nil, ErrSubscriptionNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	return &s, nil
+	return s, nil
 }
 
 // ListByUser 列用户订阅。
 func (r *SubscriptionRepo) ListByUser(ctx context.Context, userID int64) ([]models.Subscription, error) {
-	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, user_id, name, token, format, node_group_id, template_id, created_at, updated_at
-		FROM subscriptions WHERE user_id=$1 ORDER BY id`, userID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := make([]models.Subscription, 0)
-	for rows.Next() {
-		var s models.Subscription
-		if err := rows.Scan(&s.ID, &s.UserID, &s.Name, &s.Token, &s.Format, &s.NodeGroupID, &s.TemplateID, &s.CreatedAt, &s.UpdatedAt); err != nil {
-			return nil, err
-		}
-		out = append(out, s)
-	}
-	return out, rows.Err()
+	return listSubscriptionsCompat(ctx, r.db, `WHERE user_id=$1 ORDER BY id`, userID)
 }
 
 // Delete 删除订阅。
@@ -676,13 +656,15 @@ func (r *SubscriptionRepo) DeleteForUser(ctx context.Context, userID, id int64) 
 
 // OverrideRow 覆写记录。
 type OverrideRow struct {
-	NodeID      int64
-	InboundID   int64
-	DisplayName string
-	SortOrder   int
-	Icon        string
-	Params      json.RawMessage
-	ProxyGroup  string
+	NodeID       int64
+	InboundID    int64
+	DisplayName  string
+	SortOrder    int
+	SortOrderSet bool
+	Icon         string
+	Params       json.RawMessage
+	ProxyGroup   string
+	Revision     int64
 }
 
 type OverrideKey struct {
@@ -692,28 +674,19 @@ type OverrideKey struct {
 
 // ListOverrides 取订阅的覆写（map[节点ID]覆写）。
 func (r *SubscriptionRepo) ListOverrides(ctx context.Context, subID int64) (map[int64]OverrideRow, error) {
-	rows, err := r.db.QueryContext(ctx, `
-		SELECT node_id, COALESCE(display_name,''), sort_order, COALESCE(icon,''), params, COALESCE(proxy_group,'')
-		FROM subscription_node_overrides WHERE subscription_id=$1`, subID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := map[int64]OverrideRow{}
-	for rows.Next() {
-		var o OverrideRow
-		var params []byte
-		if err := rows.Scan(&o.NodeID, &o.DisplayName, &o.SortOrder, &o.Icon, &params, &o.ProxyGroup); err != nil {
-			return nil, err
-		}
-		o.Params = json.RawMessage(params)
-		out[o.NodeID] = o
-	}
-	return out, rows.Err()
+	return listOverridesCompat(ctx, r.db, subID)
 }
 
 // SaveOverride 写入/更新单节点覆写。
 func (r *SubscriptionRepo) SaveOverride(ctx context.Context, subID, nodeID int64, displayName string, sortOrder int, icon, proxyGroup string, params json.RawMessage) error {
+	displayNamePtr := stringPtr(displayName)
+	sortOrderPtr := &sortOrder
+	iconPtr := stringPtr(icon)
+	proxyGroupPtr := stringPtr(proxyGroup)
+	patch := OverridePatch{DisplayName: displayNamePtr, SortOrder: sortOrderPtr, Icon: iconPtr, Params: params, ProxyGroup: proxyGroupPtr}
+	if err := saveOverrideP2(ctx, r.db, subID, nodeID, patch); err == nil || !isP2CompatibilityError(err) {
+		return err
+	}
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO subscription_node_overrides (subscription_id, node_id, display_name, sort_order, icon, params, proxy_group)
 		VALUES ($1,$2,$3,$4,$5,$6,$7)
@@ -726,6 +699,10 @@ func (r *SubscriptionRepo) SaveOverride(ctx context.Context, subID, nodeID int64
 }
 
 func (r *SubscriptionRepo) SaveOverrideForUser(ctx context.Context, userID, subID, nodeID int64, displayName string, sortOrder int, icon, proxyGroup string, params json.RawMessage) error {
+	patch := OverridePatch{DisplayName: stringPtr(displayName), SortOrder: &sortOrder, Icon: stringPtr(icon), Params: params, ProxyGroup: stringPtr(proxyGroup)}
+	if err := r.saveOverrideForUserP2(ctx, userID, subID, nodeID, 0, patch); err == nil || !isP2CompatibilityError(err) {
+		return err
+	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -768,28 +745,15 @@ func (r *SubscriptionRepo) SaveOverrideForUser(ctx context.Context, userID, subI
 
 // ListInboundOverrides returns overrides scoped to one subscription/node/inbound.
 func (r *SubscriptionRepo) ListInboundOverrides(ctx context.Context, subID int64) (map[OverrideKey]OverrideRow, error) {
-	rows, err := r.db.QueryContext(ctx, `
-		SELECT node_id, inbound_id, COALESCE(display_name,''), sort_order, COALESCE(icon,''), params, COALESCE(proxy_group,'')
-		FROM subscription_inbound_overrides WHERE subscription_id=$1`, subID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := map[OverrideKey]OverrideRow{}
-	for rows.Next() {
-		var o OverrideRow
-		var params []byte
-		if err := rows.Scan(&o.NodeID, &o.InboundID, &o.DisplayName, &o.SortOrder, &o.Icon, &params, &o.ProxyGroup); err != nil {
-			return nil, err
-		}
-		o.Params = json.RawMessage(params)
-		out[OverrideKey{NodeID: o.NodeID, InboundID: o.InboundID}] = o
-	}
-	return out, rows.Err()
+	return listInboundOverridesCompat(ctx, r.db, subID)
 }
 
 // SaveInboundOverrideForUser writes an override for one authorized inbound.
 func (r *SubscriptionRepo) SaveInboundOverrideForUser(ctx context.Context, userID, subID, nodeID, inboundID int64, displayName string, sortOrder int, icon, proxyGroup string, params json.RawMessage) error {
+	patch := OverridePatch{DisplayName: stringPtr(displayName), SortOrder: &sortOrder, Icon: stringPtr(icon), Params: params, ProxyGroup: stringPtr(proxyGroup)}
+	if err := r.saveOverrideForUserP2(ctx, userID, subID, nodeID, inboundID, patch); err == nil || !isP2CompatibilityError(err) {
+		return err
+	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -844,14 +808,16 @@ func NewGroupRepo(db *sql.DB) *GroupRepo { return &GroupRepo{db: db} }
 
 // NodeGroup 节点组。
 type NodeGroup struct {
-	ID      int64   `json:"id"`
-	Name    string  `json:"name"`
-	NodeIDs []int64 `json:"nodeIds"`
+	ID                   int64           `json:"id"`
+	Name                 string          `json:"name"`
+	NodeIDs              []int64         `json:"nodeIds"`
+	Revision             int64           `json:"revision"`
+	SubscriptionDefaults json.RawMessage `json:"subscriptionDefaults"`
 }
 
 // List 列出节点组。
 func (r *GroupRepo) List(ctx context.Context) ([]NodeGroup, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT id, name FROM node_groups ORDER BY id`)
+	rows, err := r.db.QueryContext(ctx, `SELECT id, name,revision,subscription_defaults FROM node_groups ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -859,7 +825,7 @@ func (r *GroupRepo) List(ctx context.Context) ([]NodeGroup, error) {
 	out := make([]NodeGroup, 0)
 	for rows.Next() {
 		var g NodeGroup
-		if err := rows.Scan(&g.ID, &g.Name); err != nil {
+		if err := rows.Scan(&g.ID, &g.Name, &g.Revision, &g.SubscriptionDefaults); err != nil {
 			return nil, err
 		}
 		g.NodeIDs, err = r.NodeIDs(ctx, g.ID)
@@ -911,6 +877,9 @@ func (r *GroupRepo) SetNodeIDs(ctx context.Context, groupID int64, nodeIDs []int
 		return err
 	}
 	defer tx.Rollback()
+	if _, err := lockTopologyMaterial(ctx, tx); err != nil {
+		return err
+	}
 	var exists bool
 	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM node_groups WHERE id=$1)`, groupID).Scan(&exists); err != nil {
 		return err
@@ -941,6 +910,9 @@ func (r *GroupRepo) SetNodeIDs(ctx context.Context, groupID int64, nodeIDs []int
 		if _, err := tx.ExecContext(ctx, `INSERT INTO node_group_members (group_id, node_id) VALUES ($1,$2)`, groupID, nodeID); err != nil {
 			return err
 		}
+	}
+	if err := InvalidateTopologyAuthorization(ctx, tx); err != nil {
+		return err
 	}
 	return tx.Commit()
 }
@@ -1024,6 +996,9 @@ func (r *UserRepo) SetUserGroupIDs(ctx context.Context, userID int64, groupIDs [
 		return err
 	}
 	defer tx.Rollback()
+	if _, err := lockTopologyMaterial(ctx, tx); err != nil {
+		return err
+	}
 	var exists bool
 	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE id=$1)`, userID).Scan(&exists); err != nil {
 		return err
@@ -1054,6 +1029,9 @@ func (r *UserRepo) SetUserGroupIDs(ctx context.Context, userID int64, groupIDs [
 		if _, err := tx.ExecContext(ctx, `INSERT INTO user_node_groups (user_id, group_id) VALUES ($1,$2)`, userID, groupID); err != nil {
 			return err
 		}
+	}
+	if err := InvalidateTopologyAuthorization(ctx, tx); err != nil {
+		return err
 	}
 	return tx.Commit()
 }
