@@ -18,12 +18,13 @@ type NodeConfig struct {
 	UpdatedAt     time.Time `json:"updatedAt,omitempty"`
 	SchemaVersion string    `json:"schemaVersion,omitempty"`
 
-	NodeID      int64            `json:"nodeId"`
-	NodeName    string           `json:"nodeName"`
-	Inbounds    []Inbound        `json:"inbounds"`
-	Edges       []Edge           `json:"edges"`
-	Credentials []UserCredential `json:"credentials,omitempty"`
-	Outbound    string           `json:"outbound"`
+	NodeID             int64            `json:"nodeId"`
+	NodeName           string           `json:"nodeName"`
+	Inbounds           []Inbound        `json:"inbounds"`
+	Edges              []Edge           `json:"edges"`
+	Credentials        []UserCredential `json:"credentials,omitempty"`
+	Outbound           string           `json:"outbound"`
+	TrafficStatsListen string           `json:"trafficStatsListen,omitempty"`
 }
 
 // Inbound is a node inbound.

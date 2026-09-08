@@ -87,6 +87,7 @@ func main() {
 }
 
 func run() {
+	defer collectTraffic()
 	cfg, err := fetchConfig()
 	if err != nil {
 		if ensureErr := ensureLastGoodRunning(); ensureErr != nil {
@@ -818,7 +819,8 @@ func appliedHeartbeatVersion() string {
 }
 
 func sendHeartbeat(version string) {
-	hb := contract.Heartbeat{NodeID: *nodeID, Version: version, At: time.Now()}
+	state := readDeploymentState()
+	hb := contract.Heartbeat{NodeID: *nodeID, Version: version, AppliedRuntimeVersion: version, ConfigGeneration: state.Generation, Capabilities: []string{"topology-chain-v2", "traffic-v2"}, At: time.Now()}
 	body, err := json.Marshal(hb)
 	if err != nil {
 		return
@@ -838,5 +840,10 @@ func sendHeartbeat(version string) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		log.Printf("心跳非 200: %d", resp.StatusCode)
+		return
+	}
+	var result contract.HeartbeatResponse
+	if json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&result) == nil && result.PendingDeployment != nil && result.PendingDeployment.Validate() == nil {
+		handlePendingDeployment(*result.PendingDeployment)
 	}
 }

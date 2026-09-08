@@ -48,6 +48,46 @@ func TestFetchConfigUsesAgentHeadersAndDoesNotSendBearer(t *testing.T) {
 	}
 }
 
+func TestFetchDeploymentConfigUsesPhaseAndReleaseQuery(t *testing.T) {
+	content := renderedTestContent(t, 21)
+	document := decodeSharedConfig(t, configDocumentJSON(t, 21, content, true))
+	var gotPhase, gotRelease string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPhase = r.URL.Query().Get("phase")
+		gotRelease = r.URL.Query().Get("releaseId")
+		w.Header().Set("Content-Type", "application/json")
+		response := contract.TopologyDeploymentDocument{
+			ConfigDocument: document,
+			ReleaseID:      33,
+			Generation:     5,
+			Phase:          contract.DeploymentPhasePrepare,
+			RoutingVersion: "routing-version",
+		}
+		body, err := response.JSONBytes()
+		if err != nil {
+			t.Error("deployment encoding failed")
+			return
+		}
+		_, _ = w.Write(body)
+	}))
+	defer server.Close()
+
+	oldPanel, oldNode, oldKey := *panelURL, *nodeID, *apiKey
+	defer func() { *panelURL, *nodeID, *apiKey = oldPanel, oldNode, oldKey }()
+	*panelURL, *nodeID, *apiKey = server.URL, 21, "synthetic-agent-secret"
+
+	got, err := fetchDeploymentConfig(contract.PendingDeployment{ReleaseID: 33, Phase: contract.DeploymentPhasePrepare, Generation: 5})
+	if err != nil {
+		t.Fatalf("fetchDeploymentConfig() error = %v", err)
+	}
+	if got.ReleaseID != 33 || got.NodeID != 21 || got.Phase != contract.DeploymentPhasePrepare || got.Generation != 5 {
+		t.Fatalf("deployment document = %+v", got)
+	}
+	if gotPhase != contract.DeploymentPhasePrepare || gotRelease != "33" {
+		t.Fatalf("query = phase %q release %q", gotPhase, gotRelease)
+	}
+}
+
 func TestApplyConfigRequiresExplicitDocumentAndCore(t *testing.T) {
 	content := renderedTestContent(t, 8)
 	oldNode, oldCore, oldPath, oldApplied := *nodeID, *sbPath, *cfgPath, lastApplied

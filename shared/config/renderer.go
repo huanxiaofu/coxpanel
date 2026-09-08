@@ -21,10 +21,11 @@ type RenderedConfig struct {
 
 // SingBoxConfig contains fields verified against the v1.13.21 upstream schema.
 type SingBoxConfig struct {
-	Log       *LogConfig   `json:"log,omitempty"`
-	Inbounds  []SBInbound  `json:"inbounds"`
-	Outbounds []SBOutbound `json:"outbounds"`
-	Route     *SBRoute     `json:"route,omitempty"`
+	Log          *LogConfig     `json:"log,omitempty"`
+	Inbounds     []SBInbound    `json:"inbounds"`
+	Outbounds    []SBOutbound   `json:"outbounds"`
+	Route        *SBRoute       `json:"route,omitempty"`
+	Experimental map[string]any `json:"experimental,omitempty"`
 }
 
 type LogConfig struct {
@@ -151,6 +152,17 @@ func Render(node NodeConfig) (*RenderedConfig, error) {
 	inbounds := append([]Inbound(nil), node.Inbounds...)
 	sort.SliceStable(inbounds, func(i, j int) bool { return inbounds[i].ID < inbounds[j].ID })
 	credentials := append([]UserCredential(nil), node.Credentials...)
+	if node.TrafficStatsListen != "" {
+		host, _, err := net.SplitHostPort(node.TrafficStatsListen)
+		if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
+			return nil, fmt.Errorf("traffic stats listener must be loopback")
+		}
+		for index := range credentials {
+			if credentials[index].UserID > 0 {
+				credentials[index].Name = fmt.Sprintf("u-%d-in-%d", credentials[index].UserID, credentials[index].InboundID)
+			}
+		}
+	}
 	sort.SliceStable(credentials, func(i, j int) bool {
 		if credentials[i].InboundID != credentials[j].InboundID {
 			return credentials[i].InboundID < credentials[j].InboundID
@@ -185,6 +197,27 @@ func Render(node NodeConfig) (*RenderedConfig, error) {
 		}
 		sb.Tag = tag
 		cfg.Inbounds = append(cfg.Inbounds, *sb)
+	}
+	if node.TrafficStatsListen != "" {
+		inboundTags := []string{}
+		userNames := []string{}
+		for index := range cfg.Inbounds {
+			inbound := &cfg.Inbounds[index]
+			inboundTags = append(inboundTags, inbound.Tag)
+			for userIndex := range inbound.Users {
+				user := &inbound.Users[userIndex]
+				for _, credential := range node.Credentials {
+					if credential.UserID > 0 && (credential.UUID != "" && credential.UUID == user.UUID || credential.Password != "" && credential.Password == user.Password) {
+						user.Name = fmt.Sprintf("u-%d-in-%d", credential.UserID, credential.InboundID)
+						break
+					}
+				}
+				if strings.HasPrefix(user.Name, "u-") {
+					userNames = append(userNames, user.Name)
+				}
+			}
+		}
+		cfg.Experimental = map[string]any{"v2ray_api": map[string]any{"listen": node.TrafficStatsListen, "stats": map[string]any{"enabled": true, "inbounds": inboundTags, "users": userNames}}}
 	}
 	for _, edge := range edges {
 		fromTag, ok := tags[edge.FromInboundID]
@@ -313,7 +346,7 @@ func ValidateTopologyMaterial(node NodeConfig) error {
 	}
 	for _, edge := range node.Edges {
 		from, exists := findConfigInbound(node.Inbounds, edge.FromInboundID)
-		if !exists || from.Role != "entry" {
+		if !exists || (from.Role != "entry" && from.Role != "relay") {
 			return fmt.Errorf("edge source inbound is invalid: %d", edge.FromInboundID)
 		}
 		if edge.ToServer == "" || edge.ToPort < 1 || edge.ToPort > 65535 {
