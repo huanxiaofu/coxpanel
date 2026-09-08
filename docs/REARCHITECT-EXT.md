@@ -1,10 +1,12 @@
-# CoxPanel R0-EXT：完整产品闭环修订方案
+# sing-ui R0-EXT：完整产品闭环修订方案
 
 > 日期：2026-09-08。状态：**产品方案修订稿，未批准实施**。本轮只改文档；下列页面、API、表、迁移及验收均为设计目标，不能当作已经实现。
 >
-> 已完整阅读扩展任务书与 `docs/REARCHITECT.md` 全文。CoxPanel 调研基线 `e1e4c6b`；SubBoost 本地 `4a69b49`（package 版本 `2.8.1`）；3x-ui 本地 `2ec6c73`。参考项目只读，不运行、不搬代码或资产。Remnawave 以 2026-09-08 实际取得的官方文档正文为依据，出处见第 12 节。
+> 已完整阅读扩展任务书与 `docs/REARCHITECT.md` 全文。sing-ui 调研基线 `e1e4c6b`；SubBoost 本地 `4a69b49`（package 版本 `2.8.1`）；3x-ui 本地 `2ec6c73`。参考项目只读，不运行、不搬代码或资产。Remnawave 以 2026-09-08 实际取得的官方文档正文为依据，出处见第 12 节。
 
 ## 0. 修订决策与原方案的关系
+
+> **2026-09-08 R0-NEXT：`docs/REARCHITECT-NEXT.md`。** 产品名统一 sing-ui；完整 Agent 保留并新增无 Docker 的 SS 先行轻量版；入口通过表单创建，出口只由画布连接关系产生，DDNS 后置 R4+。冲突按 NEXT → 本文 → R0；本文模板、内外组、用户生命周期和客户十个方案的完整闭环继续有效。NEXT 第 3／4／7／8 节补充数据、API、产品准入与分期；第 13 节仍仅记录旧轮次验证。
 
 **保留两层节点与画布，补全“管理员配置资源和产品 → 分配给用户 → 基础订阅 → 客户定制 → 客户端使用”的业务链。覆写不是管理员另一个节点配置页，而是客户自己的订阅工作台。**
 
@@ -20,16 +22,16 @@
 
 ### 0.1 三个容易混淆的概念，先校正再借鉴
 
-1. **Remnawave Config Profiles ≠ 订阅 Templates。** 前者是节点运行的完整 Xray 服务端配置及入站；后者决定客户端收到的 Mihomo、Sing-box、Xray-json 等内容。其官方 Base64 格式不提供同样的完整配置模板。CoxPanel 把“服务器运行编译”和“客户端输出模板”分开，不把客户端 YAML 下发 Agent。[RW-P][RW-T]
-2. **Remnawave Internal Squad 是入站访问授权，External Squad 是模板／订阅设置覆写。** 官方说明用户可加入多个内部组；不是“内部组就是机器文件夹、外部组原生就是节点套餐”。CoxPanel 按用户要求扩展成“内部资源／可授权代理池 → 外部客户分组绑定代理和模板 → 用户可选多个外部组”，这是本项目设计，不宣称与上游数据模型一比一。[RW-S][RW-U]
-3. **SubBoost 模板描述生成策略，节点来源独立。** 本地实现确有服务端保存模板／订阅及持久 URL，不只是浏览器下载 YAML；但未发现“每客户总共十个方案”的对应限制。十个名额是 CoxPanel 自己的产品约束，不是照抄其导入源限额。[SB-T][SB-P]
+1. **Remnawave Config Profiles ≠ 订阅 Templates。** 前者是节点运行的完整 Xray 服务端配置及入站；后者决定客户端收到的 Mihomo、Sing-box、Xray-json 等内容。其官方 Base64 格式不提供同样的完整配置模板。sing-ui 把“服务器运行编译”和“客户端输出模板”分开，不把客户端 YAML 下发 Agent。[RW-P][RW-T]
+2. **Remnawave Internal Squad 是入站访问授权，External Squad 是模板／订阅设置覆写。** 官方说明用户可加入多个内部组；不是“内部组就是机器文件夹、外部组原生就是节点套餐”。sing-ui 按用户要求扩展成“内部资源／可授权代理池 → 外部客户分组绑定代理和模板 → 用户可选多个外部组”，这是本项目设计，不宣称与上游数据模型一比一。[RW-S][RW-U]
+3. **SubBoost 模板描述生成策略，节点来源独立。** 本地实现确有服务端保存模板／订阅及持久 URL，不只是浏览器下载 YAML；但未发现“每客户总共十个方案”的对应限制。十个名额是 sing-ui 自己的产品约束，不是照抄其导入源限额。[SB-T][SB-P]
 
 ### 0.2 用户七条想法逐条落位
 
 | 用户要求 | 产品落点／本文章节 |
 | --- | --- |
 | 服务器安装 Agent | 保留 R0 服务器资产、一次性注册及能力状态；不增加 SSH 自动运维 |
-| 拖服务器、配置入站出站、创建代理 | 保留 R0 画布完整闭环；第 1 节串入完整故事 |
+| 拖服务器、创建入口、连线定出口 | R0 画布闭环保留；NEXT 澄清入口表单与画布连线职责，出口不单独创建 |
 | 各客户端订阅模板 | 第 2 节模板版本、导入／导出、发布与格式能力 |
 | 代理节点＋模板、内外分组 | 第 3 节资源池、显式代理绑定和外部组产品授权 |
 | 用户分组、到期、流量、重置 | 第 4 节列表、CRUD、批量、重置调度与运行授权 |
@@ -40,8 +42,8 @@
 
 ```text
 管理员
-  服务器安装 Agent → 服务器资产卡
-  拖服务器进画布 → 配入站＋直出/下一跳 → 创建并应用 → 匹配 ACK → 已发布代理
+  服务器安装 full 或 lite Agent → 同一服务器资产卡（能力／NAT 标签）
+  拖服务器进画布 → 创建入口（无边直出）→ 需要链式时连到另一入口卡 → 应用 → 匹配 ACK
   建内部资源组 → 选可分配的代理
   建/发布客户端订阅模板
   建外部分组（显式代理集合＋允许模板＋默认模板＋可覆写策略）
@@ -58,6 +60,7 @@
 - 产品例：内部组“香港资源”包含合格入口；外部组“标准”只选其中一个，“VIP”显式选两个并允许不同模板；客户可同时分配“标准”和“VIP”。重复代理按稳定 ID 去重，不按显示名或端口去重。
 - 客户例：基础订阅已可用后创建“家用 Mihomo”和“移动 Xray”两个独立方案；前者调整 DNS／规则／节点名，后者使用经过验证的 Xray JSON 模板。两者引用同一用户已有授权，不产生第二份账号、流量额度或服务端代理。
 - 内部资源组只表达管理／分配范围，**不会自动创建服务器、开端口、调度迁移或替代画布连线**。管理员新建代理时可选“暂不分组”；加入外部组及完成授权应用前不向客户发布。
+- 所有可连接画布卡都是 ProxyNode 入站，包括内部末端；direct 不是第二卡。lite 首版 direct-only，只能在通过方法／可达性／联合发布验证后作 full 链路内部末端；客户分配还须通过独立凭据、用户计量与租约门禁，详见 NEXT。
 
 ## 2. 订阅模板：面向客户端的版本化生成策略
 
@@ -67,7 +70,7 @@
 
 操作闭环：创建空模板／复制内置模板 → 表单与结构化编辑器 → 导入文件或粘贴文本 → 查看支持字段与拒绝字段 → 合成授权节点预览 → 保存草稿 → 发布前校验 → 发布不可变版本 → 外部组选用。导出包含格式、schema、版本及校验和的无凭据模板包；“回滚”通过新发布版本或显式重绑旧版本完成，不改写历史内容。
 
-- **导入两类输入**：CoxPanel 模板包 JSON；对应适配器支持的 Mihomo YAML、Sing-box JSON、Xray 客户端 JSON 的配置子集。YAML/JSON 原生字段由格式适配器解析为受控 AST，不做跨格式盲目转换。
+- **导入两类输入**：sing-ui 模板包 JSON；对应适配器支持的 Mihomo YAML、Sing-box JSON、Xray 客户端 JSON 的配置子集。YAML/JSON 原生字段由格式适配器解析为受控 AST，不做跨格式盲目转换。
 - 完整配置中的静态节点、认证字段、外部 provider、执行脚本等不能作为模板里的隐蔽节点来源。导入器只提取支持的生成策略，给出路径级诊断和清理差异；必须确认清理才能保存。不能静默丢掉 DNS／路由后显示“原样导入成功”。禁止原始秘密落到日志、错误、草稿历史或未清理导出。
 - 第一版支持本地文件和粘贴配置，**不承诺直接兼容 SubBoost 配置包、任意 INI/subconverter 模板或第三方订阅转换服务**。没有适配器的格式返回不支持；未来适配另行版本化。
 - 服务端保留现有 `templates` 与 `template_versions`，领域/API 命名 `SubscriptionTemplate`；不另建内容重叠的 `subscription_templates` 实表。新增字段与版本存储见第 6 节。
@@ -84,11 +87,13 @@
 | v2rayN 等链接订阅客户端 | `format=base64`，UTF-8 节点 URI 列表按行 Base64，`text/plain` | 命名、排序、过滤和支持的 URI 参数；**不能携带完整 DNS、路由或代理组**。`v2rayn` 仅作为 UI 客户端标签／迁移别名，不当作第三种 JSON schema |
 | Xray core／Xray JSON 客户端 | `format=xray-json`，**一份完整可运行 JSON 对象**，`application/json` | 必含适配的客户端入站（默认仅 loopback）、出站、路由和 DNS；不是服务端 Profile，不是假定所有 GUI 都接受对象数组 |
 
-当前 CoxPanel `GenerateClient` 与 `SupportedFormats` 实际只列 Mihomo、Sing-box、Base64；迁移注释中出现 `v2rayn` 不构成支持证据。Xray-json 是本次新增设计，不能在实施前标为已支持。[CP-G]
+当前 sing-ui `GenerateClient` 与 `SupportedFormats` 实际只列 Mihomo、Sing-box、Base64；迁移注释中出现 `v2rayn` 不构成支持证据。Xray-json 是本次新增设计，不能在实施前标为已支持。[CP-G]
 
 API 返回 `format × protocol × adapterVersion` 能力矩阵。不同客户端对 Reality／SS2022／Hy2 的支持按锁定版本实际验证；未知按不支持处理，不能因 Xray 家族名相同就承诺可用。选择格式时先显示不兼容节点清单；默认发布失败，可由用户明确确认 `exclude_unsupported`，返回被排除的稳定 ID／原因并阻止空结果。后续新节点也使用方案保存的兼容策略。
 
-Base64 模板在 CoxPanel 中是“节点列表生成策略”，不是 Remnawave 那种完整配置模板；UI 隐藏 DNS／规则编辑，API 提交这些字段返回 `422 format_capability_mismatch`，不静默忽略。[RW-T][CP-G]
+NEXT 增加 profile/runtime/method/network 维度：lite 只公布验证过的 Shadowsocks 组合，不能把 SS2022 适配直接扩张成全部 SS 算法；模板、客户端覆写不更改 Agent 能力或新增链路。
+
+Base64 模板在 sing-ui 中是“节点列表生成策略”，不是 Remnawave 那种完整配置模板；UI 隐藏 DNS／规则编辑，API 提交这些字段返回 `422 format_capability_mismatch`，不静默忽略。[RW-T][CP-G]
 
 纯 Xray core 的验收是获取新 JSON 链接内容后用 `xray run -test -config <file>` 校验、启动并代理访问；订阅轮询、GUI 导入和更新由**明确命名且锁定版本的客户端／更新器**负责。v2rayN 使用 Base64 URL 的导入测试与 Xray JSON 完整配置测试分开记录，不把 core 会读配置等同于具备 GUI 订阅管理。[CL-X]
 
@@ -160,7 +165,7 @@ FinalNodes(preset) = BaseNodes(baseSubscription) intersect CustomerSelection
 - 批量动作：分配／移除／替换外部组、启停、到期设置／延期、限额及重置策略、立即重置、归档。先冻结选中 ID＋revision 或筛选快照，预览数量／影响，再提交有幂等键的 job；逐用户成功、冲突、失败分别报告，不能宣称跨所有用户原子成功。
 - 每用户可查看并复制基础订阅及授权诊断；管理员默认不读客户私有模板正文、不给自己签发客户编辑会话。客户链接显式复制，普通列表和审计不携带 token。
 
-信息架构参考 Remnawave Users 的 Traffic & Limits、Access Settings、列选择、批量、订阅链接入口；仍使用 CoxPanel 角色与 3x-ui 视觉，不复制上游含完整 UUID 的详情展示。[RW-U][UX-3]
+信息架构参考 Remnawave Users 的 Traffic & Limits、Access Settings、列选择、批量、订阅链接入口；仍使用 sing-ui 角色与 3x-ui 视觉，不复制上游含完整 UUID 的详情展示。[RW-U][UX-3]
 
 ### 4.2 状态与撤销语义
 
@@ -229,11 +234,13 @@ FinalNodes(preset) = BaseNodes(baseSubscription) intersect CustomerSelection
 - 基础 token 仅轮换时，客户方案仍引用同一基础订阅 ID；若选择“撤销基础订阅及所有衍生”，基础与所有客户 token 立即失效。UI 明确这两种动作，不能让用户误以为泄漏响应只换基础 token 就吊销所有副本。
 - 基础订阅撤销／删除、用户停用／到期／超额、方案暂停／删除或 token 轮换：下次公开请求拒绝；账号禁用还同步撤销 runtime 凭据。再次启用需重新确认授权，不能复活已明确吊销的 token。
 
-参考 SubBoost 的快捷／高级生成器、策略与源分离、模板卡片和保存后固定 URL；CoxPanel 不采用其可导入任意订阅来源作为授权事实，也不把其 YAML-only 生成证据扩张成 Xray 支持。[SB-U][SB-T][SB-P]
+参考 SubBoost 的快捷／高级生成器、策略与源分离、模板卡片和保存后固定 URL；sing-ui 不采用其可导入任意订阅来源作为授权事实，也不把其 YAML-only 生成证据扩张成 Xray 支持。[SB-U][SB-T][SB-P]
 
 ## 6. 数据模型增量：逻辑齐全，物理复用
 
 所有新表带必要 `created_at/updated_at`；可编辑聚合有 `revision`，FK 指向现有稳定用户／服务器／入站 ID。以下是设计清单，**不新增 SQL 文件、不预占已应用迁移号**。
+
+NEXT 第 3 节补充同一个 ServerNode 的 agentProfile、能力版本／容量、用户计量／租约、NAT 映射和地址预留；不另建轻量服务器、出口节点或授权表。DDNS 引用仅预留 NULL，R4+ 再评审实施。
 
 | 聚合／表 | 字段与约束（拟新增或扩展） | 目的／复用 |
 | --- | --- | --- |
@@ -265,6 +272,8 @@ FinalNodes(preset) = BaseNodes(baseSubscription) intersect CustomerSelection
 ## 7. API 增量与现有兼容入口
 
 ### 7.1 公共契约
+
+Agent 侧沿 NEXT 第 4 节复用 config／heartbeat／report-traffic／deployment-acks，新增受控注册与 lite 配置编码协商；以下模板／组／客户端点不另分 full/lite 两套。客户端公开配置不得泄露内部链路／Agent 材料。
 
 - 复用当前 `/api/templates`、`/api/users`、`/api/my/...` 路径风格，不平行新建第二套 `/api/admin/*`。表中标为新增的端点均尚未实现；旧端点见 [CP-A]。
 - 登录接口按现有角色链鉴权；写入要求 CSRF／同源保护与严格 JSON schema。更新使用 `expectedRevision`，创建／发布／批量要求 `Idempotency-Key`，同 key 不同 body 返回 409。
@@ -320,6 +329,8 @@ FinalNodes(preset) = BaseNodes(baseSubscription) intersect CustomerSelection
 ## 8. 前端信息架构与组件增量
 
 管理导航：**总览｜服务器节点｜代理节点｜拓扑编排｜分组管理（内部／外部）｜订阅模板｜用户管理｜流量与通知｜设置**。
+
+品牌显示 sing-ui；服务器资产与入口表单显示 full/lite、NAT、方法／端口／用户计量能力。画布只连接入口卡，创建抽屉的出站编辑器由只读摘要替代；客户无权改 profile、拓扑或 DDNS。实际 UI 代码留待实施。
 
 客户导航：**我的订阅｜覆写工作台｜我的自定义订阅｜流量／账户**；默认不显示服务器、内部组、Agent、拓扑或管理员发布菜单。前端隐藏不是权限实现，API 同样隔离。
 
@@ -404,6 +415,8 @@ token 或登录用户 → 找到本人基础订阅/方案（custom 只允许一�
 
 ### 10.3 分期与退出标准
 
+以下保留 EXT 产品主线；NEXT 第 8 节叠加 R1 入口／连线原型、R2 轻量资源试验、R3 SS／授权闭环及 **DDNS 独立 R4+**，不以轻量试验或 DDNS 阻塞原 full 纵切，也不把 R0-NEXT 文档提交当完成实现。
+
 | 阶段 | 范围 | 退出门槛 |
 | --- | --- | --- |
 | R0-EXT（本轮） | 完整模块方案、参考映射、数据/API/UI、验收与报告 | 用户可审阅闭环与取舍；无应用改动 |
@@ -421,7 +434,7 @@ token 或登录用户 → 找到本人基础订阅/方案（custom 只允许一�
 
 | 编号 | 合成场景与步骤 | 通过标准／证据 |
 | --- | --- | --- |
-| A1 两层强交互 | 同一服务器拖两次，在画布配 Reality 直出和 SS2022；再设内部链路 | 无需先建入站再连线；稳定独立 ID；双击/右键/按钮/键盘同表单；ACK 前不进入基础及覆写订阅 |
+| A1 两层强交互 | 同一服务器拖两次创建 Reality 和 SS2022 入口，无边直出；链式用 A→内部入口 B | 不跳页预建，不创建出口实体；稳定 ID；键盘连接和拖线同命令；表单仅配入口；ACK 前不进入基础及覆写订阅 |
 | B1 模板生命周期 | 各格式创建/导入/导出、草稿发布、版本回退、归档与安全撤回 | AST/schema 校验、无凭据导出、版本不可变；撤回版本不从缓存输出；Base64 拒绝 DNS/规则 |
 | B2 组授权 | 同机代理 A 给标准组、B 给 VIP，另有 internal 落地；用户单/多组切换 | A/B 按代理粒度隔离、内部落地不出现；runtime 拒绝未授权代理；重复节点去重、模板冲突可解释 |
 | B3 用户管理 | CRUD、多外部组、限额/延期、禁用/恢复、选中及筛选批量 | 权限不提升、批量部分失败不伪报成功；到期/额度状态与基础/覆写/runtime 同步，离线撤权窗口有实测 |
@@ -458,10 +471,10 @@ token 或登录用户 → 找到本人基础订阅/方案（custom 只允许一�
 
 ### 12.1 Remnawave 官方资料
 
-| 标识 | 页面及已确认内容 | CoxPanel 采用／差异 |
+| 标识 | 页面及已确认内容 | sing-ui 采用／差异 |
 | --- | --- | --- |
 | [RW-P] | `Config Profiles`：完整服务端 Xray 配置、入站、节点选择 Profile | 对应运行配置聚合职责；不取代画布单代理编辑，更不作为客户端模板 |
-| [RW-T] | `Templates`：客户端四家族、按客户端输出、多个模板；Base64 不提供完整模板 | 客户端适配器、版本模板选择；CoxPanel Base64 只有列表策略；版本/导入安全契约由本项目设计 |
+| [RW-T] | `Templates`：客户端四家族、按客户端输出、多个模板；Base64 不提供完整模板 | 客户端适配器、版本模板选择；sing-ui Base64 只有列表策略；版本/导入安全契约由本项目设计 |
 | [RW-S] | `Squads`：内部组选入站、用户多内部组；外部组 Templates/Settings 覆写 | 内部授权与外部体验分离；本项目显式资源池、多外部组、模板冲突规则是扩展，不假称上游原样支持 |
 | [RW-U] | `Users`：Traffic & Limits/Access Settings、到期、重置、组、列选择/筛选/批量、订阅URL | 用户页信息布局与交付按钮；本项目现有 roles、quota epoch、调度一致性不从上游拷贝 |
 
@@ -477,18 +490,18 @@ token 或登录用户 → 找到本人基础订阅/方案（custom 只允许一�
 [CL-S] https://sing-box.sagernet.org/configuration/
 ```
 
-Remnawave URL 参考的是“用户创建后交付稳定订阅链接、浏览器和客户端可有不同响应”的产品模式；没有将其未核实的内部 API/token schema 写成 CoxPanel 依赖。
+Remnawave URL 参考的是“用户创建后交付稳定订阅链接、浏览器和客户端可有不同响应”的产品模式；没有将其未核实的内部 API/token schema 写成 sing-ui 依赖。
 
 ### 12.2 SubBoost 静态源码（相对 `/opt/data/workspace/tmp/ref-subboost/`）
 
 | 标识 | 具体证据 | 可借鉴／不继承的边界 |
 | --- | --- | --- |
-| [SB-U] | `packages/ui/src/product/converter/source-editor-dialog.tsx:88`；`packages/ui/src/store/config-store/definitions.ts:183`；`packages/ui/src/product/converter/quick-mode/constants.ts:13` | 来源状态、快捷/高级、命名/过滤、代理组/规则/DNS策略；不照搬任意节点输入成为CoxPanel权限 |
+| [SB-U] | `packages/ui/src/product/converter/source-editor-dialog.tsx:88`；`packages/ui/src/store/config-store/definitions.ts:183`；`packages/ui/src/product/converter/quick-mode/constants.ts:13` | 来源状态、快捷/高级、命名/过滤、代理组/规则/DNS策略；不照搬任意节点输入成为sing-ui权限 |
 | [SB-T] | `packages/ui/src/templates/template-upload-dialog.tsx:78`；`packages/ui/src/store/config-store/actions/template-actions.ts:139` | 模板仅描述策略、应用不改nodes/sources；本项目客户模板与基础授权同样分离 |
 | [SB-PIPE] | `packages/core/src/parser/content-parsers.ts:153`；`packages/core/src/parser/platform/parse-platform-config.ts:43`；`packages/ui/src/store/config-store/generated-yaml.ts:53`；`packages/core/src/generator/index.ts:564` | 多来源解析→规范化策略→重新生成YAML；它的链接/Surge/Loon/QX支持不等于本项目原生JSON模板导入已经实现，也不等于采用subconverter服务 |
 | [SB-P] | `local/prisma/schema.prisma:23`；`local/src/lib/subscription-service.ts:121`、`:433`；`packages/ui/src/product/home/subscription-link-dialog.tsx:78` | 服务端模板/订阅加密字段、按token重新生成、编辑保持URL；不复制节点明文作为授权事实；十个名额是本项目新约束 |
 | [SB-LOCAL] | `packages/ui/src/store/config-store/persistence.ts:69`；`packages/ui/src/store/config-store/definitions.ts:60`；`packages/ui/src/product/converter/use-subscription-sources-controller.ts:102` | localStorage与服务端保存分开；源类型配额不是总方案配额；不能误写SubBoost“最多10模板” |
-| [SB-PROVIDER] | `packages/ui/src/store/config-store/source-actions.ts:214`；`packages/core/src/subscription/proxy-providers.ts:12` | provider模式仅写客户端provider声明，不等于服务端已验证其节点；CoxPanel首版禁止客户外部provider |
+| [SB-PROVIDER] | `packages/ui/src/store/config-store/source-actions.ts:214`；`packages/core/src/subscription/proxy-providers.ts:12` | provider模式仅写客户端provider声明，不等于服务端已验证其节点；sing-ui首版禁止客户外部provider |
 
 SubBoost `package.json:4` 标识 `AGPL-3.0-only`，`LICENSE:1` 为 AGPL v3；3x-ui `LICENSE:1` 为 GPL v3。本轮仅借鉴产品交互和职责，不复制代码／资产，不提供或宣称已完成许可证兼容性意见；未来如决定引入或改编源码，须单独评审许可证义务，不能因依赖使用 MIT 就视参考项目自身为 MIT。
 

@@ -1,6 +1,10 @@
-# Coxpanel
+# sing-ui
 
 图形化代理节点编排面板（自托管）。替代 Remnawave 的自研方案。
+
+> 产品现统一命名 **sing-ui**（原 Coxpanel）。架构修订阅读顺序：`docs/REARCHITECT.md` → `docs/REARCHITECT-EXT.md` → `docs/REARCHITECT-NEXT.md`，冲突以 NEXT 为准。完整／轻量 Agent 与“入口创建、出口连线”是待实施方案，DDNS 留在 R4+；本轮仅修订文档，不表示这些功能已上线或 UI 品牌代码已更新。
+>
+> 下方现有命令的 `COXPANEL_*`、数据库标识和当前仓库地址保留为原项目兼容标识；仓库目标名为 `sing-ui`，实际仓库、模块、镜像与部署改名另行批准执行，不把文档改名替换成无法运行的命令。
 
 ## 技术栈
 

@@ -1,36 +1,38 @@
-# CoxPanel 产品骨架重构方案
+# sing-ui 产品骨架重构方案
 
 > 日期：2026-09-08。状态：**方向评审稿，未批准实施**。本轮只写文档，不修改应用、数据库、Agent 或部署配置。
 >
-> 调研基线：CoxPanel `c770260`；本地 3x-ui `2ec6c73`，提交日期均为 2026-09-08。文中的“已有”以这些源码为准，“建议／新增／目标”均不代表已经实现。任务书中对参考项目的部分描述与这个版本不符，见第 2 节。
+> 调研基线：sing-ui `c770260`；本地 3x-ui `2ec6c73`，提交日期均为 2026-09-08。文中的“已有”以这些源码为准，“建议／新增／目标”均不代表已经实现。任务书中对参考项目的部分描述与这个版本不符，见第 2 节。
 
 > **2026-09-08 R0-EXT 修订入口：`docs/REARCHITECT-EXT.md`。** 用户已确认两层节点模型、服务器拖入画布创建代理的强交互和 3x-ui 前端风格；这些方向保留。新增订阅模板、内外分组、用户生命周期与客户覆写完整闭环，以补充稿为准。本文第 1 节“不做完整模板平台／Xray 适配器”的旧范围、第 7／8 节第二批单层授权建议、第 9.2 节总量估算及第 10 节旧分期，不再代表完整产品范围；具体替代关系见补充稿第 0 节。第 11 节仅记录原 R0 轮次验证，不是本次修订验证。确认产品方向和提交文档均不等于批准实施。
 
 ## 0. 结论先行：需要换骨架，不是给旧页面换皮
 
-**明确推荐：以 CoxPanel 现有集中控制面、Agent 和 sing-box 契约为技术底座，重建两层领域模型与管理端交互；前端以本地 3x-ui 的布局、主题和配置表单为具体参考重新实现。暂不整体 fork 3x-ui 替换产品。**
+> **2026-09-08 R0-NEXT 修订：`docs/REARCHITECT-NEXT.md`。** 产品统一 sing-ui；服务器新增 full／lite Agent 形态；创建只配置入口，出口只由画布连线定义。冲突优先级 NEXT → EXT → 本文。本文第 3／4／5 节已同步关键语义；第 6–8 节 Agent 编译、能力、API 的分层增量和第 10 节新分期以 NEXT 为准，DDNS 后置 R4+。历史来源路径沿用原文件名，不代表产品仍使用旧品牌。
+
+**明确推荐：以 sing-ui 现有集中控制面、Agent 和 sing-box 契约为技术底座，重建两层领域模型与管理端交互；前端以本地 3x-ui 的布局、主题和配置表单为具体参考重新实现。暂不整体 fork 3x-ui 替换产品。**
 
 这不是“继续修补现在的 UI”：`Nodes.tsx` 的混合节点表、先建入站再连线的 `TopologyGraph.tsx`、旧导航和表单组织都应重做。保留的是经过编码的控制能力，不是用户已经否定的产品骨架。
 
 三个不能退让的产品原则：
 
 1. **服务器节点是资源，代理节点是服务。** 左侧选的是运行 Agent 的服务器，不是已经存在的入站。一个服务器可承载多个代理节点。
-2. **用户在画布内完成工作。** 拖服务器 → 配入站和出站 → 确认创建并应用 → 查看该代理节点是否真正生效；不要求先去另一个页面创建入站，也不要求理解“物理根节点、草稿版本、prepare”等内部术语。
+2. **用户在画布内完成工作。** 拖服务器 → 创建入口（无连线默认本机直出）→ 需要链式时连到另一入口卡 → 确认应用 → 查看是否真正生效；入口＝创建、出口＝连线，不要求先去另一个页面创建入站，也不要求理解“物理根节点、草稿版本、prepare”等内部术语。
 3. **美观与可用同时交付。** 采用 3x-ui 的统一主题、紧凑信息层级、协议分区表单、状态和操作规范；不是增加一张有装饰但不能操作的拓扑图。
 
-首个验收故事：用户从左侧拖入一台名为 `HK-zouter` 的服务器，在同一配置面板设置 Reality 入站、选择“本机直接出站”，点击“创建并应用”，看到一个归属该服务器的 Reality 代理节点。**这只需要一台服务器、一个入站，不需要虚构第二个落地节点。** `zouter` 在此沿用用户的服务器命名，不假设它是另一个协议、组件或内核。
+首个验收故事：用户从左侧拖入一台名为 `HK-zouter` 的 full 服务器，在同一配置面板创建 Reality 入口；没有出边，摘要只读“本机直出”，点击“创建并应用”并等到匹配 ACK。**这只需要一台服务器、一个入站，不需要虚构第二个落地节点或另选出口。** `zouter` 沿用用户服务器命名，不假设它是另一组件。
 
 ## 1. 调研边界与证据方法
 
 - 完整阅读任务书 `/opt/data/workspace/tmp/coxpanel-rearchitect-task.md`；只读对照当前工程及 `/opt/data/workspace/tmp/ref-3xui/`。
-- 3x-ui 的证据路径在下文统一省略参考根目录，以 `3x-ui: frontend/...` 表示。CoxPanel 路径相对当前仓库。
+- 3x-ui 的证据路径在下文统一省略参考根目录，以 `3x-ui: frontend/...` 表示。sing-ui 路径相对当前仓库。
 - 没有读取凭证文件、连接真实数据库、登录现有面板、检查 KUL 生产服务或运行参考项目。不能把静态源码审查说成实际视觉体验、跨节点验收或已有生产经验。
 - Remnawave 只参考官方学习资料，不编造本会话没有的“本机实践记忆”。核查了官方 `Config Profiles`、`Nodes`、`Hosts`、`Squads` 页面；不引入其源码和运维依赖。定位信息见附录 A。
 - Xboard 按任务书忽略。这个阶段不增加新协议、支付系统、Xray 适配器或完整配置模板平台。
 
 ## 2. 必须先纠正的现状认识
 
-### 2.1 CoxPanel 并非完全没有两层数据，问题在产品抽象和写入流程
+### 2.1 sing-ui 并非完全没有两层数据，问题在产品抽象和写入流程
 
 | 已核实事实 | 证据 | 对重构的意义 |
 | --- | --- | --- |
@@ -54,41 +56,42 @@
 - `3x-ui: internal/database/db.go:2189` 已支持 PostgreSQL 分支，不能以“只支持 SQLite”否定它。
 - `3x-ui: frontend/src/pages/inbounds/form/protocols/hysteria.tsx:10` 已有 Hysteria v2 子表单，`InboundFormModal.tsx:890` 有接入。不能沿用旧印象声称参考项目完全没有 Hy2。
 
-**准确区别是部署模型和产品语义，而不是有没有节点页面：**参考实现以本地／远端 3x-ui 面板运行时及 Xray 模型组织管理；CoxPanel 的目标是集中控制轻量 Agent＋sing-box、跨服务器拓扑发布、用户级订阅与权限。3x-ui 已有的远程管理、客户端和订阅相关能力应计入复用价值，但不能直接当作 CoxPanel 现有语义的等价替代。
+**准确区别是部署模型和产品语义，而不是有没有节点页面：**参考实现以本地／远端 3x-ui 面板运行时及 Xray 模型组织管理；sing-ui 的目标是集中控制 Agent、跨服务器拓扑发布、用户级订阅与权限。当前 full 沿用 sing-box；NEXT 新增不强制完整内核的超轻量 lite，不能把既有 Agent 称为已符合 NAT 小内存门槛。3x-ui 已有远程管理、客户端和订阅能力应计入复用价值，但不直接等价于本项目语义。
 
-没有在上述证据中确认可直接替代 CoxPanel 的“服务器拖入 → 跨服务器依赖发布 → prepare/apply 回执 → 补偿回滚”完整画布闭环。这个结论表示**不能认定现成功能可复用**，不声称对整个参考仓库做了功能不存在的形式证明。
+没有在上述证据中确认可直接替代 sing-ui 的“服务器拖入 → 跨服务器依赖发布 → prepare/apply 回执 → 补偿回滚”完整画布闭环。这个结论表示**不能认定现成功能可复用**，不声称对整个参考仓库做了功能不存在的形式证明。
 
 ## 3. 新概念模型：只有两层“节点”
 
 ### 3.1 服务器节点 ServerNode
 
-受管物理机或虚拟机上的 Agent 注册身份；第一版约定一台服务器一个受管 Agent／一个 sing-box 运行实例。不是代理协议，也不直接出现在用户订阅里。
+受管物理机或虚拟机上的 Agent 注册身份；一台服务器一个受管 Agent 身份。full 保留 Docker＋sing-box；lite 新增无 Docker 的原生轻量形态，运行时在资源／授权实测后选定，不强制完整 sing-box。两者同为 ServerNode，不是代理协议，也不直接出现在用户订阅里；详见 NEXT 第 2–5 节。
 
 - 身份／资产：`id`、`name`、地区／标签、`hostname`、`os`、`arch`、CPU／内存摘要。
 - 网络：公开访问地址 `publicAddress`、内部管理／链路地址 `privateAddress`；旧 `public_ip/easy_ip` 的公开 DTO 别名，不把 EasyTier 强加为用户必须理解的概念。
 - 运行：`agentStatus`、`lastSeenAt`、`agentVersion`、`coreVersion`、能力清单与当前配置 generation。
 - 能力：是否具备 Reality／SS2022／Hy2 所需内核、UDP、证书引用以及 `topology-chain-v2` 等。**未知不等于支持；心跳在线不等于代理可用。**
 - 生命周期：待注册、在线、离线、维护／停用。资产标签由管理员维护，系统／版本事实由 Agent 上报；不得用心跳覆盖管理员备注。
+- 分层增量：`agentProfile`、运行时／能力 revision、容量、用户认证／计量／租约能力、NAT 标记及端口映射，见 NEXT 第 3 节；未知不放行。DDNS 仅预留字段／接口，R4+ 再做。
 
 容器或二进制只是 Agent 安装方式，不改变模型。本阶段不设计远程 SSH 自动安装；注册页后续提供部署说明和一次性注册流程，凭证不进入资产拖拽数据。
 
 ### 3.2 代理节点 ProxyNode
 
-**受管代理节点 = 一个服务器节点 + 一个入站服务实例；出站策略属于该代理节点的配置。**
+**受管代理节点 = 一个服务器节点 + 一个入站服务实例；入口通过表单创建，出口是画布关系，不单独创建。** `egress` 是关系的兼容投影，不是另一套独立表单配置。
 
 概念 DTO：`id`、`serverNodeId`、`name`、`protocol`、`listenAddress`、`listenPort`、`advertisedAddress/Port`、`inbound`、`egress`、`exposure`、`draftRevision`、`publishedRevision`、`deploymentStatus`。
 
 - 一个 ServerNode 对多个 ProxyNode；同一服务器再拖一次可以创建另一个端口／协议的代理，不是再注册一台机器。
 - 代理身份使用稳定 ID，不用端口、位置、协议或显示名称作为身份。第一期受管 `proxyNodeId` 保持等于旧 `inbounds.id`，避免破坏凭据、流量和覆写引用。
 - `inbound` 是结构化协议配置，不是要求用户粘贴 JSON。
-- `egress = {mode: direct}` 表示该入站经所属服务器直接出网；它不是第二个入站，更不生成额外服务器。
-- `egress = {mode: chain, targetProxyNodeId: ...}` 表示从这个代理的入站转发到另一个代理的入站；连接的是服务 ID，目标服务器由后端解析。
+- `egress = {mode: direct}` 与零出边对应，表示该入站经所属服务器直接出网；本机直出只是卡内摘要／清线动作，不生成额外节点。
+- `egress = {mode: chain, targetProxyNodeId: ...}` 与一条入口卡连线对应，表示 A 的流量进入 B 入站；连接的是服务 ID，目标服务器／拨号 endpoint 由后端解析。边是唯一目标权威。
 - `exposure = subscription | internal` 区分“给用户订阅的入口”和“仅供链路使用的内部代理”。第一版隐藏旧 role 输入，按组合映射：`subscription → entry`；`internal+direct → landing`；`internal+chain → relay`。
 - 同时作为用户入口和其他代理下一跳暂不支持；不能通过隐藏 role 控件悄悄放开凭据／流量边界。未来支持双用途需要单独升级渲染和授权契约。
 
 ### 3.3 外部静态代理不是服务器资产
 
-旧 `nodes.type=external` 没有 CoxPanel Agent，不应显示在“服务器节点”资产面板或提供“下发配置”。
+旧 `nodes.type=external` 没有 sing-ui Agent，不应显示在“服务器节点”资产面板或提供“下发配置”。
 
 第一期将其独立展示为“外部代理”，沿用旧数据与订阅生成路径。它是代理服务的一种来源，不是第三层机器节点。DTO 使用 `origin=external` 和命名空间 ID `external:<oldNodeId>`，不能与受管 `inbounds.id` 的裸整数混用。暂不允许外部代理参与需要 prepare/apply 的受管链路；若以后允许作外部出口，明确“仅配置上游、无法确认远端”的边界。
 
@@ -100,7 +103,7 @@
 | `nodes(type=external)` | 外部代理服务 | 保留兼容记录、单独 DTO 和列表 | 不出现在服务器拖拽面板、不显示 Agent 状态 |
 | `inbounds` | 受管代理节点 `ProxyNode` | 保留 ID、`node_id` FK；领域名及 API 改名 | 用户可在画布直接创建、配置、部署和编辑 |
 | `inbounds.role` | 内部编译属性 | 暂保留，映射自 exposure／egress | 用户不再必须先学 entry／landing／relay |
-| `inbounds.egress_mode` | 代理节点的出站策略 | 保留 direct／chain | 选择目标服务后自动形成边，不另建“出站机器” |
+| `inbounds.egress_mode` | 代理节点出边的兼容投影 | 保留 direct／chain | 无边＝direct，一条出边＝chain；连线决定出口，不另建出口实体 |
 | `edges` 关系表 | 遗留路由边 | 保留只读兼容，不当作权威 | 与草稿冲突则报告人工核对，禁止静默覆盖 |
 | `topology_drafts.edges` | 代理节点间的草稿连接 | 保留按来源服务器分片及图版本 | 接受代理级变更，由服务层归并到服务器 |
 | `topology_drafts.layout` | 画布展示状态 | 分离成单独布局版本，见 0017 | 移动卡片不触发配置发布或使配置预检失效 |
@@ -120,7 +123,7 @@
 ```text
 应用侧栏    顶栏：拓扑编排 / 当前工作区     主题  帮助  账户
             ┌服务器资产 260px┬拓扑画布（自适应）────┬配置抽屉 560–680px┐
-            │搜索/标签/在线  │ HK-zouter / Reality │入站｜出站｜高级   │
+            │full/lite/NAT   │ HK-zouter / Reality │基础｜协议｜安全   │
             │HK-zouter  在线 │ [服务器归属][状态]  │字段、校验和预检   │
             │ SG-edge   在线 │         ──→ ...     │                  │
             │现有代理：定位  │缩放/适配/操作历史    │保存草稿 创建并应用│
@@ -128,7 +131,7 @@
             发布进度：正在准备 → 下游应用 → 入口应用 → 已生效
 ```
 
-画布不是服务器之间的裸网络连通图。已生成卡片主标题是代理名称、副标题是所属服务器；服务器可用背景分组表达，但组不是可连接的代理。左侧始终以服务器为一级资产；“该机已有代理”作为展开项供定位／选择，不能退回到入站资产池。
+画布不是服务器之间的裸网络连通图。唯一可连接实体是入口／ProxyNode 卡片，主标题是入口名、副标题是所属服务器；服务器背景组不可连线，direct 不是节点。左侧始终以服务器为一级资产；“该机已有代理”仅供定位。配置抽屉只创建／编辑入口和显示只读出口摘要，连接把手／画布菜单负责出口。
 
 ### 4.2 首个 Reality 直出故事：文字流程图
 
@@ -136,10 +139,10 @@
 2. **拖 `HK-zouter` 到画布**：拖拽 payload 仅含 `serverNodeId`；用 React Flow 的坐标转换得到位置。生成 `draft:<uuid>` 虚线占位卡，显示“待配置”，此时不写 `inbounds`、不生成配置、不调用 Agent。
 3. **双击或右键→配置**：打开同一 `ProxyConfigDrawer`；右键菜单也提供“取消创建／查看服务器”。卡片有可见“配置”按钮，Enter 可打开；不能把功能藏在用户发现不了的右键里。
 4. **配置入站**：默认名 `HK-zouter-Reality`，选择 VLESS Reality、监听端口、SNI、握手目标，点击“生成密钥／Short ID”。高级监听地址和 advertised endpoint 默认继承服务器但可展开查看。不得把示例 SNI 当已验证目标。
-5. **配置出站**：默认“本机直接出站（HK-zouter）”。“通过其他代理”则进入目标代理选择器；直出不需要用户再拖一台同名服务器。
+5. **查看只读出口摘要**：新入口尚无出边，显示“本机直出（HK-zouter）”，无需另选出口。要走链式则保存入口草稿，在画布从该卡连到目标入口后确认批量应用；不要求先发布一次直出，也不需要虚构同名落地服务器。
 6. **实时检查**：前端快速反馈必填和格式；后端预检协议能力、草稿版本、同机端口、证书引用、依赖和权限。抽屉显示摘要“HK-zouter · Reality · TCP 443 · 本机直出 · 将影响本机完整配置”，仅为示意端口，实际以用户选择为准。
 7. **点击“创建并应用”**：一个明确确认点授权这次变更。后端将暂存配置保存为候选，预检并创建发布任务，返回 `202 operationId/releaseId`。画布保留位置，用正式代理 ID 替换临时 ID，显示“部署中”，**不是已可用**。
-8. **自动应用**：后端按该服务器全部已确认代理＋本次候选重新生成一份完整 sing-box 配置，Agent 沿现有心跳／拉取通道获得任务，prepare 校验后 apply 并回执。这里的“下发”是产品效果，不承诺新建反向连接或 WebSocket 推送通道。
+8. **自动应用**：full 按该服务器全部已确认代理＋本次候选生成完整 sing-box 配置；lite 按 NEXT 的适配器生成受限但完整的本机入站快照。Agent 沿心跳／拉取通道 prepare、apply 并回执，不新增反向管理连接或强制 WebSocket。
 9. **确认成功**：校验回执的服务器身份、generation、runtime version 和发布 ID。仅成功后晋升配置及订阅可见版本。卡片变为“已生效”；“已生效”只表示配置应用确认，不等于任意公网客户端连通测试已通过。
 10. **失败分支**：卡片显示失败阶段和可操作原因；保留表单，支持修正／重试。已有代理继续展示旧生效版本，新代理不进入订阅。取消未保存占位卡不留服务；保存过的草稿需明确“删除草稿”。
 
@@ -150,11 +153,12 @@
 ### 4.3 多代理与链式交互
 
 - 再拖同一服务器：默认“新建另一代理”，建议未占用端口；也可选择“定位已有代理”，不能误把已有实例复制成相同端口。
-- “出站→通过其他代理”：选择目标代理，展示其服务器、协议、内外网链路地址和发布状态。拖线与选择器更新同一份 draft store，不能各有一套 egress 真相。
+- 从入口 A 的连接把手拖线到入口 B；键盘／小屏通过画布菜单“连接到…”执行同一 Connect 命令。展示目标服务器、协议、受控链路 endpoint 和发布状态；创建表单没有另一套出站选择器。
 - `A → B` 表示 A 的流量进入 B 的入站；箭头显示“下一跳”及协议。内部直出 B 显示“落地／本机直出”，不要再添加一个 direct 服务实体。
 - 目标必须是允许做下一跳的内部代理；选中订阅入口时提示建立独立内部代理，不静默把已有入口改为 landing。
 - 未配置占位卡不能发布。批量场景允许先将两个草稿配置齐全，再“应用 2 项变更”；客户端临时 ID 通过 `clientRef` 解析为正式代理 ID。
 - 出站连线后只改草稿，不自动发布生产配置；用户点击“应用更改”时汇总完整影响范围。同机其他代理由服务器级编译器一并保留，不会因保存一个卡片被清空。
+- 删除出边／选择“本机直出”动作须警告出口改为本机并明确应用；目标离线不自动删边或回落 direct。删除目标先做上游依赖处理，不能隐式拆链。lite 首版不能作 chain 源；full→lite 内部末端须通过 NEXT 能力、可达性和联合发布门禁。
 - 原有规则继续保底：一个代理最多一个下一跳；无自环、无有向环、同一条链不重入服务器、最多 8 个入站；第一版不放宽 relay 不被多个上游复用的限制。前端提示，后端最终校验。
 - 发布按依赖从下游到入口执行；编辑被上游引用的内部代理须包含所有受影响上游，而不只是从当前“根服务器”向下遍历。锁定重叠服务器的并发发布。
 - “从画布移除”只是隐藏／布局操作；“停用代理”是需要发布的新配置；“删除代理”需依赖检查、确认下线和历史保留，三个动作不能混用。
@@ -175,13 +179,15 @@
 
 ### 4.5 配置表单：第一版就能正确生成当前内核配置
 
-| 分区／组件（拟新增） | 必填与主要动作 | 当前 CoxPanel 对齐／不能照搬部分 |
+| 分区／组件（拟新增） | 必填与主要动作 | 当前 sing-ui 对齐／不能照搬部分 |
 | --- | --- | --- |
 | `ProxyBasicFields` | 名称、服务器只读、协议、端口、订阅入口／内部用途 | 服务器不是可任意改的字段；换服务器是未来“迁移代理”操作 |
-| `RealityInboundFields` | SNI、握手目标 host:port、生成 X25519 密钥和 Short ID；公钥可复制、私钥只显示已设置 | 对齐 `sni/privateKey/shortId/target`；用户 UUID 来自既有用户凭据，不让管理员给所有用户共用一个 UUID |
-| `ShadowsocksInboundFields` | 支持的 SS2022 method、按算法长度生成服务端密码 | 当前 renderer 只支持 SS2022，不能照抄参考表单把旧 SS 算法全部开放 |
+| `InboundProtocolTabs/PortAvailabilityField` | 协议快捷 tabs＋基础／协议／安全／高级分区；端口冲突定位、NAT 映射提示 | 借鉴 3x-ui 的协议 Select＋分区 Tabs，不虚称原项目顶层已是协议 tabs；按能力禁用／解释，端口需服务端预检和 Agent bind 检查 |
+| `RealityInboundFields` | SNI、dest／握手目标 host:port、显式互填快捷动作；生成 X25519／Short ID | 对齐 `sni/privateKey/shortId/target`；不自动扫描目标；用户 UUID 来自独立用户凭据，私钥不回显 |
+| `ShadowsocksInboundFields` | 能力支持的 method、按算法长度生成密码、TCP/UDP 和认证／容量提示 | 当前 full renderer 只支持 SS2022；lite 运行时／方法单独验证，不能开放未经验证旧 SS 或共享密码冒充多用户 |
 | `Hysteria2InboundFields` | UDP 端口、SNI、证书引用、带宽参数、可选 obfs；内部用途自动生成认证材料 | 当前需要 `certificatePath/keyPath`；UI 选 Agent 已登记证书的 `certificateRef`，后端／Agent 映射允许目录，禁止任意面板路径；第一期不承诺自动 ACME 签发 |
-| `EgressEditor` | direct／chain、目标代理搜索、依赖摘要 | server 地址、目标入站参数和内部凭据由后端解析；前端不提交整份目标 `toParams` |
+| `TLSCertificateFields` | 已登记证书引用、有效期／域名检查；生成或导入入口按能力显示 | 自签测试证书与受信任签发分开；未支持生成／ACME 时不给假可用按钮；不接受任意路径 |
+| `EgressSummary`（替代 EgressEditor） | 只读本机直出／下一跳、定位画布连线、依赖摘要 | 入口表单不编辑 direct/chain 或 target；连接命令统一维护边，目标地址／内部凭据由后端解析 |
 | `AdvancedProxyFields` | 监听地址、公布地址／端口、兼容参数 | 默认折叠；不暴露未支持的 Xray transport、masquerade、内核任意 JSON |
 | `SecretGenerateButton` | 生成／轮换确认，失败不清空原值 | 生成新材料不等于立即轮换生效；返回临时 `secretRef`，预览、日志、草稿导出不含秘密 |
 | `DeploymentSummary` | 生效版本、待应用差异、影响服务器、可重试原因 | 可读错误和字段定位；不展示堆栈、凭证或用户连接串 |
@@ -200,9 +206,9 @@
 
 - **主题**：`3x-ui: frontend/src/hooks/useTheme.tsx:35` 提供深色、极深色背景 tokens；`:119` 的 `buildAntdThemeConfig` 组合 AntD algorithm、Layout/Menu/Card 等组件 tokens；偏好通过 localStorage 保留。借鉴统一 token 和模式切换，不在每个页面堆硬编码颜色。
 - **侧栏／响应式**：`frontend/src/layouts/AppSidebar.tsx:174`、`:361`、`:418` 有桌面 Sider、移动 Drawer、导航状态和固定侧栏交互。
-- **页面结构**：`frontend/src/styles/page-shell.css:1` 汇集页面头部、内容、摘要卡的样式。`PanelLayout.tsx:6` 实际只是 Outlet＋标题／WebSocket bridge，**不是一个拿来即可用的“侧栏＋顶部栏布局组件”**。CoxPanel 应自行实现统一 `AppShell`，吸收侧栏和页面标题组织，顶部操作栏是自己的明确设计。
+- **页面结构**：`frontend/src/styles/page-shell.css:1` 汇集页面头部、内容、摘要卡的样式。`PanelLayout.tsx:6` 实际只是 Outlet＋标题／WebSocket bridge，**不是一个拿来即可用的“侧栏＋顶部栏布局组件”**。sing-ui 应自行实现统一 `AppShell`，吸收侧栏和页面标题组织，顶部操作栏是自己的明确设计。
 - **表格／移动端**：`frontend/src/pages/inbounds/list/InboundList.tsx:252`、`:332` 的列表、操作和移动卡片切换；`pages/nodes/NodeList.tsx:237` 的状态、统计和节点动作提供资产页参考。
-- **表单**：`frontend/src/pages/inbounds/form/InboundFormModal.tsx:1086` 使用约 780px Modal、分组 Tabs、提交 loading、关闭处理；协议／传输／安全字段拆开。CoxPanel 画布用 Drawer 保留空间上下文，普通列表用 Modal，内部共享同一个 `ProxyConfigForm`，不把整个弹窗原样塞进画布。
+- **表单**：`frontend/src/pages/inbounds/form/InboundFormModal.tsx:1086` 使用约 780px Modal、分组 Tabs、提交 loading、关闭处理；协议／传输／安全字段拆开。sing-ui 画布用 Drawer 保留空间上下文，普通列表用 Modal，内部共享同一个 `ProxyConfigForm`，不把整个弹窗原样塞进画布。
 
 ### 5.3 推荐视觉参数（设计目标，不是假称已经验收）
 
@@ -215,26 +221,26 @@
 
 ### 5.4 页面／组件到参考源码的执行映射
 
-| CoxPanel 目标位置（拟新增／重写） | 具体参考 | 采用方式与验收点 |
+| sing-ui 目标位置（拟新增／重写） | 具体参考 | 采用方式与验收点 |
 | --- | --- | --- |
-| 重写 `components/AppLayout.tsx`，拆 `AppShell/Sidebar/Topbar/PageHeader` | 3x-ui `layouts/AppSidebar.tsx`、`styles/page-shell.css` | 参考导航分区、折叠、移动 Drawer；保留 CoxPanel auth/router，不搬远程面板选择逻辑 |
+| 重写 `components/AppLayout.tsx`，拆 `AppShell/Sidebar/Topbar/PageHeader` | 3x-ui `layouts/AppSidebar.tsx`、`styles/page-shell.css` | 参考导航分区、折叠、移动 Drawer；保留 sing-ui auth/router，不搬远程面板选择逻辑 |
 | 新增 `theme/ThemeProvider.tsx`、`theme/tokens.ts`，调整 `App.tsx/index.css` | `hooks/useTheme.tsx` | 一次根级 ConfigProvider；AntD 与 React Flow 共享色板；浅深色列表／弹窗／画布均一致 |
-| `pages/Servers.tsx`、`ServerDetailDrawer.tsx` 替换 `Nodes.tsx` 的服务器部分 | `pages/nodes/NodeList.tsx`、`NodeFormModal.tsx` | 状态统计、筛选、分页、详情分区；不复制 API token／mTLS 入参当作 CoxPanel 注册契约 |
+| `pages/Servers.tsx`、`ServerDetailDrawer.tsx` 替换 `Nodes.tsx` 的服务器部分 | `pages/nodes/NodeList.tsx`、`NodeFormModal.tsx` | 状态统计、筛选、分页、详情分区；不复制 API token／mTLS 入参当作 sing-ui 注册契约 |
 | 新增 `pages/Proxies.tsx`／`ExternalProxies.tsx` | `pages/inbounds/list/InboundList.tsx`、`CloneInboundModal.tsx` | 服务器／协议／状态筛选，紧凑表格、移动卡片；复制配置必须重新分配端口和秘密引用 |
 | 重写 `pages/TopologyGraph.tsx`，新增 `features/topology/TopologyWorkspace.tsx` | 侧栏／页面壳组织＋现有 React Flow | 自己实现服务器拖入、临时卡、双击、右键、配置和操作进度；不声称 3x-ui 提供现成拓扑画布 |
 | `ServerAssetPanel`、`ServerAssetItem`、`ProxyNodeCard`、`ProxyContextMenu` | `pages/nodes/NodeList.tsx` 的状态呈现 | 左侧一级是服务器；同机可生成两个不同代理；无须跳页 |
-| `ProxyConfigDrawer/ProxyConfigModal/ProxyConfigForm` | `pages/inbounds/form/InboundFormModal.tsx` | 分入站／出站／高级 Tabs，定位错误页签；两个容器共用字段、验证和提交流程 |
+| `ProxyConfigDrawer/ProxyConfigModal/ProxyConfigForm` | `pages/inbounds/form/InboundFormModal.tsx` | 基础／协议／安全／高级分区和错误页签定位；只配入口，出口只读；两个容器共用验证与提交 |
 | `RealityInboundFields/SecretGenerateButton` | `pages/inbounds/form/security/reality.tsx:45`、`:209`、`:249` | SNI／握手目标、生成按钮、字段帮助；不复制参考私钥明文 textarea 的展示策略 |
 | `ShadowsocksInboundFields/Hysteria2InboundFields` | `pages/inbounds/form/protocols/shadowsocks.tsx`、`hysteria.tsx`、`security/tls.tsx` | 只显示 sing-box 当前支持字段，能力不足时解释而不是提交后才失败 |
-| `DeploymentProgressDrawer/ChangeSummary/DependencyPicker` | 入站表单和节点状态卡的层级，发布逻辑自行实现 | 逐服务器阶段、可重试错误、回滚结果；不把参考 runtime 状态当 CoxPanel 发布状态 |
+| `DeploymentProgressDrawer/ChangeSummary/DependencyPicker` | 入站表单和节点状态卡的层级，发布逻辑自行实现 | 逐服务器阶段、可重试错误、回滚结果；不把参考 runtime 状态当 sing-ui 发布状态 |
 | `hooks/useServers/useProxies/useOperation` | `api/queries/useNodesQuery.ts:24` 和 query key 组织 | 可在下一阶段引入 React Query 统一请求状态；Zustand 只存画布草稿，不复制服务器状态到双缓存 |
 | 总览、订阅、模板、流量页的共同表格／空态／筛选 | `styles/page-shell.css`、入站／节点列表公共模式 | 第一批统一页面头部和间距；业务逻辑留用，ECharts 不为“同风格”强行换 uPlot |
 
 ### 5.5 不是“一整个 frontend 文件夹复制过来”
 
-双方本地 `frontend/package.json` 的 React 19／AntD 6／Vite 8 主栈接近，但 CoxPanel 目前没有 React Query、i18next、react-hook-form、Zod，而参考项目依赖这些及 generated API／Xray schemas，router 主版本也不同。
+双方本地 `frontend/package.json` 的 React 19／AntD 6／Vite 8 主栈接近，但 sing-ui 目前没有 React Query、i18next、react-hook-form、Zod，而参考项目依赖这些及 generated API／Xray schemas，router 主版本也不同。
 
-推荐：**学习布局与交互、按 CoxPanel 契约重新实现组件；不把 3x-ui 当组件库安装。** 首期用既有 AntD Form、React Router、Zustand；若引入 React Query，限定在请求缓存层，单独评审依赖与迁移范围。无需同时迁入 RHF、i18next、uPlot、全部 schema 和参考构建生成链。
+推荐：**学习布局与交互、按 sing-ui 契约重新实现组件；不把 3x-ui 当组件库安装。** 首期用既有 AntD Form、React Router、Zustand；若引入 React Query，限定在请求缓存层，单独评审依赖与迁移范围。无需同时迁入 RHF、i18next、uPlot、全部 schema 和参考构建生成链。
 
 本地 `3x-ui: LICENSE:1` 标明 GPLv3。若下一阶段选择实质复制／改编代码或整体 fork，应先完成项目分发方式及许可证兼容性评审，保留必要来源和声明；这里仅记录源码中的许可证事实，不替代法律意见。本轮没有复制应用代码、图片或品牌素材，也没有作出“同栈即可无条件搬用”的判断。
 
@@ -305,7 +311,7 @@ UI 结构化代理配置＋期望版本＋幂等键
 
 `proxy_node_publications.client_snapshot` 不等于整个 sing-box 配置；只存生成客户端所需的稳定公开材料和受控服务秘密引用。回滚／重新发布也创建新版本记录，保留旧记录，不反复覆盖历史。实际秘密的受控存储／加密沿项目安全方案实施；没有完备存储前不得开放生成接口。
 
-草稿 payload 与 `topology_drafts.edges` 不得各自存可冲突的独立目标：服务层选定**边为出站目标权威**，payload 存协议字段、用途和 direct／chain 意图；保存时同事务更新，读取时统一投影。新 API 不再接受客户端提供冗余 `toNodeId`，兼容边序列化时由目标入站 FK 推导。
+草稿 payload 与 `topology_drafts.edges` 不得各自存可冲突的独立目标：**边是唯一出站目标权威**，payload 存入口字段与用途；direct／chain 和 target 从同一 graph revision 派生并在同事务维护兼容投影。零出边＝direct，一条合法出边＝chain；客户端冗余 egress 与边冲突时拒绝，不静默覆盖。目标服务器由入站 FK 推导。
 
 ### 7.3 有序升级、回填、回滚
 
@@ -331,7 +337,7 @@ UI 结构化代理配置＋期望版本＋幂等键
 | `GET/PATCH/DELETE /api/servers/{serverId}` | 详情／资产更新／退役检查 | 有代理、发布或计量引用时不级联硬删，返回依赖摘要 |
 | `GET /api/servers/{serverId}/capabilities` | 协议、Agent／内核版本、证书可用引用 | capability 的 unknown 明确返回，不伪装 ready |
 | `GET /api/servers/{serverId}/proxies` | 所属受管代理及 draft／published 状态 | 替代公开的 `/api/nodes/{id}/inbounds` 列表语言 |
-| `POST /api/servers/{serverId}/proxies` | 一步新建；`clientRef, inbound, egress, exposure, position, intent, expectedVersions` | `intent=save_draft` 返回 201 草稿；`intent=apply` 返回 202 操作；两者都支持 Idempotency-Key |
+| `POST /api/servers/{serverId}/proxies` | 一步创建入口；`clientRef,inbound,exposure,position,intent,expectedVersions`，无连线默认 direct | `save_draft` 返回 201；`apply` 返回 202；支持幂等。chain 由画布变更集连接命令表达，不在表单独立提交目标 |
 | `GET /api/proxies`、`GET /api/proxies/{proxyId}` | 过滤服务器／协议／状态，区分已发布摘要与草稿 | 受管 proxyId 仍为 inboundId；常规 GET 不回显私钥 |
 | `PATCH /api/proxies/{proxyId}/draft` | 保存候选，带 expectedDraftRevision／basePublishedRevision | 仅草稿，不影响 Agent 或订阅；同机／同图并发冲突 409 |
 | `POST /api/proxies/{proxyId}/apply` | 应用指定 draftRevision；确认影响范围 | 创建新的 operation/release，不能发布“最近那份未知草稿” |
@@ -350,7 +356,7 @@ UI 结构化代理配置＋期望版本＋幂等键
 
 旧 `/api/nodes`、`/api/nodes/{id}/inbounds`、`PUT /api/topology/graph`、`/api/topology/{nodeId}/preview|deploy` 在兼容期**统一进入新服务或明确返回升级错误**，不能留下直接写入 inbounds／旧 fallback 的旁路。读取兼容不意味着允许旧客户端绕过新的已发布语义。
 
-Agent 的 `/api/agent/config`、`/api/agent/heartbeat`、`/api/agent/deployment-acks` 保留路径与 nodeId（服务器 ID），按能力增量扩展资产观测与确认数据。不把 Agent nodeId 换成 proxyId，因为一次应用覆盖该服务器完整配置。
+Agent 的 `/api/agent/config`、`/api/agent/heartbeat`、`/api/agent/report-traffic`、`/api/agent/deployment-acks` 保留路径与 nodeId（服务器 ID），full/lite 按 NEXT 第 4 节协商格式、能力和简化遥测；受控 Agent register 是新增设计。一次应用仍覆盖该服务器完整受管配置，nodeId 不换成 proxyId。
 
 ### 8.2 单机创建示例（合成示意，不含真实连接信息）
 
@@ -373,14 +379,13 @@ Content-Type: application/json
     "target": "example.invalid:443",
     "secretRef": "generated-material-reference"
   },
-  "egress": { "mode": "direct" },
   "position": { "x": 240, "y": 160 },
   "intent": "apply",
   "expectedVersions": { "graphRevision": 12, "serverGeneration": 4 }
 }
 ```
 
-`example.invalid` 明确只是不可用于真实部署的占位；不是推荐握手域名。实际请求使用前端刚取得的版本，不能写死示例数值。
+`example.invalid` 明确只是不可用于真实部署的占位；不是推荐握手域名。新建入口不提交独立出口字段，无出边即 direct；chain 使用画布连线变更集。实际请求使用前端刚取得的版本，不能写死示例数值。
 
 ```json
 {
@@ -395,18 +400,18 @@ Content-Type: application/json
 
 返回的 202 只说明发布已受理。服务端 validation 失败返回 `422 fieldErrors[]`；版本冲突／端口占用／活动发布冲突按明确错误码返回 409；401／403 沿现有认证语义。多机变更若依赖摘要自用户确认后改变，必须重新确认，不静默扩大部署范围。
 
-## 9. “fork 3x-ui”与“重构 CoxPanel”的客观比较
+## 9. “fork 3x-ui”与“重构 sing-ui”的客观比较
 
 ### 9.1 按相同目标比较，而不是拿改皮肤对比重写控制面
 
-| 维度 | 整体 fork 本地 3x-ui | CoxPanel 底座＋新骨架（推荐） |
+| 维度 | 整体 fork 本地 3x-ui | sing-ui 底座＋新骨架（推荐） |
 | --- | --- | --- |
 | 成熟前端 | 优势明显，已有组件、表单、测试、主题和远端节点页 | 要真正重写管理端骨架，不能低估视觉和交互工作 |
 | 两层节点／画布创建 | 有节点和入站概念，但仍需实现用户指定的资产拖入和统一创建流程 | 存储一对多已有；同样需实现新流程，但已有 React Flow 和图校验可用 |
-| 多节点 | 已有实质远程 runtime／同步／状态管理，不是从零补节点表 | 已有轻量 Agent 和发布协议；与当前目标部署形态一致 |
+| 多节点 | 已有实质远程 runtime／同步／状态管理，不是从零补节点表 | 已有 full Agent 和发布协议；面向 NAT 小内存的 lite 是 NEXT 新增设计，未实测交付 |
 | 内核及协议 | Xray 配置模型与当前 sing-box 不同；保留 Xray是产品选择，切 sing-box 是迁移工程 | Reality／SS2022／Hy2 现有 renderer、Agent 契约可保留 |
 | 跨服务器发布 | 要验证或补齐与目标同等的版本、依赖、确认、回滚保障 | 已有 P2 状态机可复用，但候选编辑／确认发布／订阅边界仍需修整 |
-| 用户／订阅 | 已有相关能力，不能声称完全不存在；仍需适配 CoxPanel 用户、组、模板、覆写、额度和格式语义 | 现有用户与订阅数据可留用；必须修好从实时入站读取的问题 |
+| 用户／订阅 | 已有相关能力，不能声称完全不存在；仍需适配 sing-ui 用户、组、模板、覆写、额度和格式语义 | 现有用户与订阅数据可留用；必须修好从实时入站读取的问题 |
 | 数据迁移 | 迁移身份、入站、Agent 部署、用户凭据、订阅 token、权限、计量和模板 | 增量迁移，保留 ID／token／历史；主要难点是状态与授权边界 |
 | 后续维护 | 要承担上游追踪、差异冲突、许可评审和可能双内核成本 | 保留自研维护成本；需要以原型评审约束“再次闭门造车” |
 
@@ -414,7 +419,7 @@ Content-Type: application/json
 
 假设一位熟悉项目的全栈工程师、已有本地测试能力、设计决策及时、首版只含当前三种协议；人日包括实现与定向回归，不含生产迁移窗口、完整授权改造、自动证书签发和新协议。基于静态代码估算，**置信度中低**，应在首个端到端纵切后重新估算。
 
-| 工作包 | CoxPanel 新骨架 | 整体 fork 3x-ui，保持同等 Agent＋sing-box 目标 |
+| 工作包 | sing-ui 新骨架 | 整体 fork 3x-ui，保持同等 Agent＋sing-box 目标 |
 | --- | --- | --- |
 | 交互原型／主题／页面骨架 | 4–6 人日 | 3–5 人日（利用现成视觉，但仍需画布流程） |
 | 两层 DTO、服务器资产、代理配置／画布闭环 | 8–12 人日 | 8–12 人日 |
@@ -424,11 +429,11 @@ Content-Type: application/json
 | 集成／浏览器／迁移与异常回归 | 5–8 人日 | 7–11 人日 |
 | **合计** | **29–44 人日** | **48–76 人日** |
 
-若接受使用远端完整 3x-ui＋Xray、舍弃部分 CoxPanel 兼容要求，fork 成本可能显著下降；但那是**更换运行和业务目标**，不能一边改变目标一边宣称比同等重构便宜。表内估算没有把“3x-ui 已支持 PostgreSQL／远程节点／Hy2”错误地算成从零开发项。
+若接受使用远端完整 3x-ui＋Xray、舍弃部分 sing-ui 兼容要求，fork 成本可能显著下降；但那是**更换运行和业务目标**，不能一边改变目标一边宣称比同等重构便宜。表内估算没有把“3x-ui 已支持 PostgreSQL／远程节点／Hy2”错误地算成从零开发项。
 
 ### 9.3 推荐及反转条件
 
-现在选择 CoxPanel 底座的理由：用户否定的是产品模型／交互／外观，而这三者必须重构，但不必同时弃掉 Agent、sing-box、用户订阅和跨节点发布积累。3x-ui 的最大直接价值是成熟前端范式及配置体验，不能为获取这些收益附带一次未经批准的内核／部署体系切换。
+现在选择 sing-ui 底座的理由：用户否定的是产品模型／交互／外观，而这三者必须重构，但不必同时弃掉 Agent、sing-box、用户订阅和跨节点发布积累。3x-ui 的最大直接价值是成熟前端范式及配置体验，不能为获取这些收益附带一次未经批准的内核／部署体系切换。
 
 若用户明确接受“服务器运行 3x-ui/Xray，不必沿用现有 Agent／sing-box／兼容数据”，应重新评审整体 fork。那时的改造清单至少包括：锁定参考版本与许可证方案、服务器／代理 API 适配、画布操作服务、跨节点发布保障、用户组与订阅模板映射、旧 token／凭据／流量迁移、远端生命周期和升级策略，以及恢复演练。不能仅复制 frontend 后宣布 fork 改造完成。
 
@@ -470,7 +475,7 @@ R1 的交互评审是硬门槛，不允许再次用“后端已经写了很多�
 
 ## 附录 A：可追溯参考索引
 
-### A.1 CoxPanel（仓库相对路径）
+### A.1 sing-ui（仓库相对路径）
 
 | 主题 | 主要入口 |
 | --- | --- |
@@ -498,7 +503,7 @@ R1 的交互评审是硬门槛，不允许再次用“后端已经写了很多�
 
 ### A.3 Remnawave：借鉴分离职责，不照搬多层术语
 
-官方资料于 2026-09-08 通过公开 HTTPS 正文核查（没有访问本机实例）。`Config Profiles` 讲完整 Xray 配置模板及其入站；`Nodes` 讲负责实际代理流量的节点；`Hosts` 将订阅地址映射到入站；`Squads` 把用户可用入站与运行节点配置分开。由此借鉴：**机器承载、服务配置、客户端公布地址、用户授权是不同职责**。不能把一个 Profile 直接等同于一台服务器或一个 CoxPanel 代理。
+官方资料于 2026-09-08 通过公开 HTTPS 正文核查（没有访问本机实例）。`Config Profiles` 讲完整 Xray 配置模板及其入站；`Nodes` 讲负责实际代理流量的节点；`Hosts` 将订阅地址映射到入站；`Squads` 把用户可用入站与运行节点配置分开。由此借鉴：**机器承载、服务配置、客户端公布地址、用户授权是不同职责**。不能把一个 Profile 直接等同于一台服务器或一个 sing-ui 代理。
 
 核查页面定位（为复核保留原始地址，仅作资料记录）：
 
@@ -509,4 +514,4 @@ https://docs.rw/learn-en/hosts
 https://docs.rw/learn-en/squads
 ```
 
-CoxPanel 首版不要求用户先创建 Profile、Host、Squad 才能画图：把单入站配置内嵌到代理编辑器；公布地址作为高级字段；运行配置按服务器自动聚合；授权先明确旧范围，再分批升级代理粒度。未来多服务器模板复用可另设 `ProxyTemplate`，但模板不是第三种节点，不能打乱此次刚理顺的两层模型。
+sing-ui 首版不要求用户先创建 Profile、Host、Squad 才能画图：把单入站配置内嵌到代理编辑器；公布地址作为高级字段；运行配置按服务器自动聚合；授权先明确旧范围，再分批升级代理粒度。未来多服务器模板复用可另设 `ProxyTemplate`，但模板不是第三种节点，不能打乱此次刚理顺的两层模型。
