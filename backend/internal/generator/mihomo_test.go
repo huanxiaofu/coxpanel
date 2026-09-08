@@ -387,10 +387,14 @@ func TestGenerateMihomoSS2022UsesServerAndUserPSKChain(t *testing.T) {
 }
 
 func TestGenerateMihomoSS2022PassesLocalSingBoxHandshake(t *testing.T) {
-	const (
-		mihomoPath  = "/work/tools/mihomo"
+	mihomoPath := os.Getenv("P2_TEST_MIHOMO")
+	if mihomoPath == "" {
+		mihomoPath = "/work/tools/mihomo"
+	}
+	singBoxPath := os.Getenv("COXPANEL_REAL_SINGBOX")
+	if singBoxPath == "" {
 		singBoxPath = "/workspace/tmp/sing-box-audit/sing-box-1.13.21-linux-amd64/sing-box"
-	)
+	}
 	if _, err := os.Stat(mihomoPath); err != nil {
 		t.Skip("pinned Mihomo binary is unavailable")
 	}
@@ -615,7 +619,10 @@ func stopTestProcess(command *exec.Cmd) {
 }
 
 func TestGenerateMihomoParsesWithPinnedClient(t *testing.T) {
-	const mihomoPath = "/work/tools/mihomo"
+	mihomoPath := os.Getenv("P2_TEST_MIHOMO")
+	if mihomoPath == "" {
+		mihomoPath = "/work/tools/mihomo"
+	}
 	if _, err := os.Stat(mihomoPath); err != nil {
 		t.Skip("pinned Mihomo binary is unavailable")
 	}
