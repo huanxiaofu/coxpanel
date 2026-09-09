@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useReducer, useState } from 'react';
 import type { ReactNode } from 'react';
-import { connectionError, getInbound, getServer, inboundPortConflict, inboundReadiness, inboundReferences, serverAssets, validateServerTraffic } from './model';
-import type { EgressConfig, InboundResource, ProxyConfig, ProxyDraft, ServerAsset, ServerTraffic } from './model';
+import { chainReadiness, getInbound, inboundPortConflict, inboundReferences, serverAssets, validateServerTraffic } from './model';
+import type { ChainHop, EgressConfig, InboundResource, ProxyConfig, ProxyDraft, ServerAsset, ServerTraffic } from './model';
 
 interface Operation {
   ids: string[];
@@ -20,45 +20,47 @@ export type WorkspaceAction =
   | { type: 'server-save'; id: string; tags: string[]; traffic: ServerTraffic }
   | { type: 'server-toggle'; id: string }
   | { type: 'add'; proxy: ProxyDraft }
-  | { type: 'move'; positions: Array<{ id: string; position: ProxyDraft['position'] }> }
   | { type: 'remove'; id: string }
-  | { type: 'save'; id: string; config: ProxyConfig }
-  | { type: 'reuse'; id: string; inboundId: string }
+  | { type: 'rename'; id: string; name: string }
+  | { type: 'append-hop'; id: string }
+  | { type: 'remove-hop'; id: string; position: number }
+  | { type: 'move-hop'; id: string; position: number; direction: -1 | 1 }
+  | { type: 'select-server'; id: string; position: number; serverId: string }
+  | { type: 'save-hop'; id: string; position: number; config: ProxyConfig; resourceId: string }
+  | { type: 'reuse-hop'; id: string; position: number; inboundId: string }
   | { type: 'egress'; id: string; name: string; egress: EgressConfig }
-  | { type: 'revert-egress'; id: string }
+  | { type: 'revert-chain'; id: string }
   | { type: 'start'; ids: string[]; fail: boolean }
   | { type: 'advance' }
   | { type: 'reset' };
 
 export const initialState: WorkspaceState = { servers: serverAssets, proxies: [], inbounds: [] };
 const asDraft = (proxy: ProxyDraft): ProxyDraft => ({ ...proxy, status: 'draft', dirty: true, failure: undefined });
+const ordered = (chain: ChainHop[]) => chain.map((hop, position) => ({ ...hop, position }));
+const resourceDirty = (resource: InboundResource) => JSON.stringify(resource.config) !== JSON.stringify(resource.published);
 
 export function workspaceApplyError(state: WorkspaceState, ids: string[]): string | undefined {
-  if (!ids.length) return '没有可应用的节点。';
+  if (!ids.length) return '没有可应用的代理链。';
   for (const id of ids) {
     const proxy = state.proxies.find(item => item.id === id);
-    const inbound = proxy && getInbound(state.inbounds, proxy);
-    if (!proxy || !inbound) return '请先配置所有选中节点的入口。';
-    if (proxy.egress.type === 'block') return 'block 仅预留，不可应用。';
-    if (proxy.egress.type === 'next-hop') {
-      const reason = connectionError(state.proxies, state.inbounds, id, proxy.egress.targetInboundId ?? '', state.servers);
-      if (reason) return reason;
-    }
-    for (const resourceId of [inbound.id, proxy.egress.targetInboundId].filter(Boolean)) {
-      const resource = state.inbounds.find(item => item.id === resourceId);
-      if (!resource) return '目标入口不存在。';
-      const reason = inboundReadiness(resource, state.servers);
-      if (reason) return `${resource.config.name}：${reason}`;
-      if (inboundPortConflict(state.inbounds, resource.serverId, resource.config.listenPort, resource.id)) return '同机端口已被其他入口占用。';
-      const resourceDirty = JSON.stringify(resource.config) !== JSON.stringify(resource.published);
-      if (resourceDirty && inboundReferences(state.proxies, resource.id, true).some(reference => !ids.includes(reference.id))) return '共享入口变更影响其他节点，请使用「应用更改」一起确认全部引用。';
+    if (!proxy) return '代理链不存在。';
+    const reason = chainReadiness(proxy, state.inbounds, state.servers);
+    if (reason) return `${proxy.name || '未命名节点'}：${reason}`;
+    for (const hop of proxy.chain) {
+      const resource = getInbound(state.inbounds, hop)!;
+      if (resourceDirty(resource) && inboundReferences(state.proxies, resource.id, true).some(reference => !ids.includes(reference.id))) {
+        return '共享入站变更影响其他链，请使用「应用全部更改」一起确认全部引用。';
+      }
     }
   }
 }
 
 export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction): WorkspaceState {
   const busy = state.operation?.phase === 'preparing' || state.operation?.phase === 'applying';
-  if (busy && action.type !== 'advance' && action.type !== 'move') return state;
+  if (busy && action.type !== 'advance') return state;
+  const updateProxy = (id: string, update: (proxy: ProxyDraft) => ProxyDraft): WorkspaceState => ({
+    ...state, operation: undefined, proxies: state.proxies.map(proxy => proxy.id === id ? asDraft(update(proxy)) : proxy),
+  });
   switch (action.type) {
     case 'server-save': {
       const tags = [...new Set(action.tags.map(tag => tag.trim()).filter(Boolean))];
@@ -71,59 +73,75 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
       resumeStatus: server.status === 'maintenance' ? undefined : server.status,
     } : server) };
     case 'add': {
-      const server = state.servers.find(item => item.id === action.proxy.serverId);
-      if (!server || server.status !== 'online' || !server.capabilitiesKnown) return state;
-      return { ...state, proxies: [...state.proxies, action.proxy] };
+      if (!action.proxy.chain.length || state.proxies.some(proxy => proxy.id === action.proxy.id)) return state;
+      if (action.proxy.chain.some(hop => hop.serverId && !state.servers.some(server => server.id === hop.serverId && server.status === 'online' && server.capabilitiesKnown))) return state;
+      return { ...state, operation: undefined, proxies: [...state.proxies, asDraft({ ...action.proxy, chain: ordered(action.proxy.chain) })] };
     }
-    case 'move': return { ...state, proxies: state.proxies.map(proxy => {
-      const changed = action.positions.find(position => position.id === proxy.id);
-      return changed ? { ...proxy, position: changed.position } : proxy;
-    }) };
-    case 'remove': return { ...state, proxies: state.proxies.filter(proxy => proxy.id !== action.id || proxy.published) };
-    case 'save': {
+    case 'remove': return { ...state, operation: undefined, proxies: state.proxies.filter(proxy => proxy.id !== action.id || proxy.published) };
+    case 'rename': return updateProxy(action.id, proxy => ({ ...proxy, name: action.name.slice(0, 80) }));
+    case 'append-hop': return updateProxy(action.id, proxy => ({ ...proxy, chain: [...proxy.chain, { position: proxy.chain.length, serverId: '' }] }));
+    case 'remove-hop': return updateProxy(action.id, proxy => proxy.chain.length <= 1 ? proxy : ({ ...proxy, chain: ordered(proxy.chain.filter(hop => hop.position !== action.position)) }));
+    case 'move-hop': return updateProxy(action.id, proxy => {
+      const target = action.position + action.direction;
+      if (!proxy.chain[action.position] || !proxy.chain[target]) return proxy;
+      const chain = [...proxy.chain];
+      [chain[action.position], chain[target]] = [chain[target], chain[action.position]];
+      return { ...proxy, chain: ordered(chain) };
+    });
+    case 'select-server': {
+      const server = state.servers.find(item => item.id === action.serverId);
+      if (!server || server.status !== 'online' || !server.capabilitiesKnown || (action.position > 0 && !server.chainTarget)) return state;
+      return updateProxy(action.id, proxy => ({ ...proxy, chain: proxy.chain.map(hop => hop.position === action.position && hop.serverId !== server.id ? { position: hop.position, serverId: server.id } : hop) }));
+    }
+    case 'save-hop': {
       const proxy = state.proxies.find(item => item.id === action.id);
-      if (!proxy || inboundPortConflict(state.inbounds, proxy.serverId, action.config.listenPort, proxy.inboundId)) return state;
-      const existing = getInbound(state.inbounds, proxy);
+      const hop = proxy?.chain[action.position];
+      const server = state.servers.find(item => item.id === hop?.serverId);
+      if (!proxy || !hop || !server || server.status !== 'online' || !server.capabilitiesKnown) return state;
+      const existing = state.inbounds.find(resource => resource.id === action.resourceId);
+      if (existing && (existing.id !== hop.inboundId || existing.serverId !== hop.serverId)) return state;
       if (existing?.published && existing.config.protocol !== action.config.protocol) return state;
-      if (!existing && state.inbounds.filter(item => item.serverId === proxy.serverId).length >= getServer(proxy.serverId, state.servers).maxProxies) return state;
-      const inboundId = existing?.id ?? `inbound:${proxy.id}`;
-      const resource = { ...existing, id: inboundId, serverId: proxy.serverId, config: action.config };
-      const affected = new Set(inboundReferences(state.proxies, inboundId, true).map(item => item.id));
-      affected.add(proxy.id);
-      return { ...state, inbounds: [...state.inbounds.filter(item => item.id !== inboundId), resource], proxies: state.proxies.map(item => affected.has(item.id) ? asDraft({ ...item, ...(item.id === proxy.id ? { inboundId, name: existing ? item.name : action.config.name } : {}) }) : item) };
+      if (!existing && server.maxProxies > 0 && state.inbounds.filter(resource => resource.serverId === server.id).length >= server.maxProxies) return state;
+      if (inboundPortConflict(state.inbounds, hop.serverId, action.config.listenPort, existing?.id)) return state;
+      const resource: InboundResource = { id: action.resourceId, serverId: hop.serverId, config: { ...action.config }, published: existing?.published };
+      const affected = new Set([proxy.id, ...inboundReferences(state.proxies, resource.id, true).map(reference => reference.id)]);
+      return { ...state, operation: undefined, inbounds: [...state.inbounds.filter(item => item.id !== resource.id), resource], proxies: state.proxies.map(item => affected.has(item.id) ? asDraft({
+        ...item, chain: item.id === proxy.id ? item.chain.map(candidate => candidate.position === action.position ? { position: candidate.position, serverId: hop.serverId, inboundId: resource.id } : candidate) : item.chain,
+      }) : item) };
     }
-    case 'reuse': {
+    case 'reuse-hop': {
+      const proxy = state.proxies.find(item => item.id === action.id);
+      const hop = proxy?.chain[action.position];
       const inbound = state.inbounds.find(item => item.id === action.inboundId);
-      if (!inbound) return state;
-      return { ...state, proxies: state.proxies.map(proxy => proxy.id === action.id && !proxy.inboundId && proxy.serverId === inbound.serverId ? asDraft({ ...proxy, inboundId: inbound.id, name: `${inbound.config.name} · 引用 ${state.proxies.filter(item => item.inboundId === inbound.id).length + 1}` }) : proxy) };
+      if (!proxy || !hop || !inbound || inbound.serverId !== hop.serverId) return state;
+      if (action.position === 0 && inbound.config.exposure !== 'subscription') return state;
+      if (proxy.chain.some(candidate => candidate.position !== action.position && candidate.inboundId === inbound.id)) return state;
+      return updateProxy(action.id, item => ({ ...item, chain: item.chain.map(candidate => candidate.position === action.position ? { position: candidate.position, serverId: inbound.serverId, inboundId: inbound.id } : candidate) }));
     }
     case 'egress': {
-      if (action.egress.type === 'block') return state;
-      if (action.egress.type === 'next-hop' && connectionError(state.proxies, state.inbounds, action.id, action.egress.targetInboundId ?? '', state.servers)) return state;
-      const egress = { ...action.egress, targetInboundId: action.egress.type === 'next-hop' ? action.egress.targetInboundId : undefined };
-      return { ...state, proxies: state.proxies.map(proxy => proxy.id === action.id ? asDraft({ ...proxy, name: action.name, egress }) : proxy) };
+      if (action.egress.type !== 'direct') return state;
+      return updateProxy(action.id, proxy => ({ ...proxy, name: action.name, egress: { ...action.egress, dns: { ...action.egress.dns } } }));
     }
-    case 'revert-egress': return { ...state, proxies: state.proxies.map(proxy => {
+    case 'revert-chain': return { ...state, operation: undefined, proxies: state.proxies.map(proxy => {
       if (proxy.id !== action.id || !proxy.published) return proxy;
-      const inbound = getInbound(state.inbounds, proxy);
-      const target = state.inbounds.find(item => item.id === proxy.published?.egress.targetInboundId);
-      const dirty = [inbound, target].some(item => item && JSON.stringify(item.config) !== JSON.stringify(item.published));
-      return { ...proxy, egress: proxy.published.egress, name: proxy.published.name, dirty, status: dirty ? 'draft' : 'active', failure: undefined };
+      const restored = { ...proxy, ...structuredClone(proxy.published) };
+      const dirty = restored.chain.some(hop => { const resource = getInbound(state.inbounds, hop); return !resource || resourceDirty(resource); });
+      return { ...restored, dirty, status: dirty ? 'draft' : 'active', failure: undefined };
     }) };
     case 'start': {
       if (workspaceApplyError(state, action.ids)) return state;
-      return { ...state, operation: { ids: action.ids, phase: 'preparing', fail: action.fail }, proxies: state.proxies.map(proxy => action.ids.includes(proxy.id) ? { ...proxy, status: 'preparing', failure: undefined } : proxy) };
+      return { ...state, operation: { ids: [...action.ids], phase: 'preparing', fail: action.fail }, proxies: state.proxies.map(proxy => action.ids.includes(proxy.id) ? { ...proxy, status: 'preparing', failure: undefined } : proxy) };
     }
     case 'advance': {
       if (!state.operation || !busy) return state;
       const phase = state.operation.phase === 'preparing' ? 'applying' : state.operation.fail ? 'failed' : 'active';
       const ids = state.operation.ids;
-      const resources = new Set(state.proxies.filter(proxy => ids.includes(proxy.id)).flatMap(proxy => [proxy.inboundId, proxy.egress.targetInboundId]));
+      const resources = new Set(state.proxies.filter(proxy => ids.includes(proxy.id)).flatMap(proxy => proxy.chain.map(hop => hop.inboundId)));
       return { ...state, operation: { ...state.operation, phase },
         inbounds: phase === 'active' ? state.inbounds.map(inbound => resources.has(inbound.id) ? { ...inbound, published: { ...inbound.config } } : inbound) : state.inbounds,
         proxies: state.proxies.map(proxy => ids.includes(proxy.id) ? { ...proxy, status: phase, dirty: phase !== 'active',
-          published: phase === 'active' && proxy.inboundId ? { inboundId: proxy.inboundId, name: proxy.name, egress: { ...proxy.egress, dns: { ...proxy.egress.dns } } } : proxy.published,
-          failure: phase === 'failed' ? '模拟应用失败；草稿已保留，旧模拟发布不变。可重试。' : undefined,
+          published: phase === 'active' ? structuredClone({ name: proxy.name, chain: proxy.chain, egress: proxy.egress }) : proxy.published,
+          failure: phase === 'failed' ? '模拟应用失败；整条链草稿已保留，旧模拟发布不变。可重试。' : undefined,
         } : proxy),
       };
     }

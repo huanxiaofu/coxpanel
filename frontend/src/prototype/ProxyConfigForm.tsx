@@ -25,13 +25,13 @@ import {
   protocolCatalog,
   protocolLabels,
 } from "./model";
-import type { InboundResource, Protocol, ProxyConfig, ProxyDraft, ServerAsset } from "./model";
+import type { ChainHop, InboundResource, Protocol, ProxyConfig, ServerAsset } from "./model";
 import InboundProtocolFields from "./InboundProtocolFields";
 import type { InboundFormSection } from "./InboundProtocolFields";
 import { useWorkspace } from "./WorkspaceProvider";
 
 export interface ProxyConfigFormProps {
-  proxy: ProxyDraft;
+  hop: ChainHop;
   inbounds: InboundResource[];
   referenceCount: number;
   egressLabel: string;
@@ -163,10 +163,11 @@ function sectionForPath(path: FormPath): string {
   }
 }
 
-function createInitialConfig(proxy: ProxyDraft, inbounds: InboundResource[], server: ServerAsset): ProxyConfig {
-  const inbound = getInbound(inbounds, proxy);
-  const config = { ...(inbound?.config ?? defaultConfig(server, inbounds)) };
-  return config;
+function createInitialConfig(hop: ChainHop, inbounds: InboundResource[], server: ServerAsset): ProxyConfig {
+  const inbound = getInbound(inbounds, hop);
+  const existingConfig = inbound?.config ?? hop.newInboundDraft;
+  const config = { ...(existingConfig ?? defaultConfig(server, inbounds)) };
+  return existingConfig || hop.position === 0 ? config : { ...config, exposure: "internal" };
 }
 
 function normalizeConfig(config: ProxyConfig): ProxyConfig {
@@ -249,11 +250,11 @@ function HiddenReadinessFields(): ReactElement {
   );
 }
 
-export default function ProxyConfigForm({ proxy, inbounds, referenceCount, egressLabel, onSave, onClose }: ProxyConfigFormProps): ReactElement {
+export default function ProxyConfigForm({ hop, inbounds, referenceCount, egressLabel, onSave, onClose }: ProxyConfigFormProps): ReactElement {
   const { state: { servers } } = useWorkspace();
-  const server = getServer(proxy.serverId, servers);
-  const inbound = getInbound(inbounds, proxy);
-  const [initialConfig] = useState<ProxyConfig>(() => createInitialConfig(proxy, inbounds, server));
+  const server = getServer(hop.serverId, servers);
+  const inbound = getInbound(inbounds, hop);
+  const [initialConfig] = useState<ProxyConfig>(() => createInitialConfig(hop, inbounds, server));
   const [form] = Form.useForm<ProxyConfig>();
   const [activeSection, setActiveSection] = useState("basic");
   const [activeProtocol, setActiveProtocol] = useState<Protocol>(initialConfig.protocol);
@@ -267,6 +268,7 @@ export default function ProxyConfigForm({ proxy, inbounds, referenceCount, egres
   const [modal, modalContextHolder] = Modal.useModal();
   const { token } = theme.useToken();
   const screens = Grid.useBreakpoint();
+  const isEntryHop = hop.position === 0;
   const isPublished = Boolean(inbound?.published);
   const isNewInbound = !inbound;
 
@@ -276,7 +278,12 @@ export default function ProxyConfigForm({ proxy, inbounds, referenceCount, egres
   }, []);
 
   const currentConfig = normalizeConfig({ ...initialConfig, ...form.getFieldsValue(true), protocol: activeProtocol });
-  const blockers = applyBlockers(currentConfig, server, inbound, inbounds);
+  const hopApplyBlockers = (config: ProxyConfig): string[] => {
+    const blockers = applyBlockers(config, server, inbound, inbounds);
+    if (isEntryHop && config.exposure !== "subscription") blockers.unshift("第 1 跳必须使用 subscription，不能以 internal 应用。");
+    return blockers;
+  };
+  const blockers = hopApplyBlockers(currentConfig);
   const canApply = blockers.length === 0;
   const canSave = IMPLEMENTED_PROTOCOLS.includes(currentConfig.protocol);
   const resourceCount = inbounds.filter((candidate) => candidate.serverId === server.id).length;
@@ -360,17 +367,18 @@ export default function ProxyConfigForm({ proxy, inbounds, referenceCount, egres
 
   const confirmApply = (config: ProxyConfig) => {
     modal.confirm({
-      title: isNewInbound ? "确认创建并应用入口资源？" : "确认应用入口更改？",
+      title: `确认保存第 ${hop.position + 1} 跳并校验整条链？`,
       content: (
         <Space orientation="vertical" size={8}>
-          <Typography.Text>入口：{config.name}</Typography.Text>
+          <Typography.Text>当前跳：第 {hop.position + 1} 跳 · {config.name}</Typography.Text>
           <Typography.Text>监听端口：{config.listenPort}</Typography.Text>
-          <Typography.Text>节点引用：{referenceCount} 个</Typography.Text>
-          {referenceCount > 0 && <Alert type="warning" showIcon title="这是共享入口资源" description="应用后会影响所有引用该入口的节点。" />}
+          <Typography.Text>引用该资源的代理链：{referenceCount} 条</Typography.Text>
+          {referenceCount > 0 && <Alert type="warning" showIcon title="这是共享入口资源" description="应用后会影响所有引用该入口的代理链。" />}
+          <Typography.Text type="secondary">将保存该跳入口，并在确认时校验整条代理链；不会单独发布该跳。</Typography.Text>
           <Typography.Text type="secondary">确认框不展示任何材料、密码或密钥内容。</Typography.Text>
         </Space>
       ),
-      okText: isNewInbound ? "确认创建并应用" : "确认应用更改",
+      okText: "保存该跳并确认整链",
       cancelText: "返回编辑",
       onOk: () => {
         try {
@@ -399,7 +407,7 @@ export default function ProxyConfigForm({ proxy, inbounds, referenceCount, egres
     void form.validateFields()
       .then((values) => {
         const config = normalizeConfig({ ...initialConfig, ...form.getFieldsValue(true), ...values, protocol: activeProtocol });
-        if (!IMPLEMENTED_PROTOCOLS.includes(config.protocol) || applyBlockers(config, server, inbound, inbounds).length > 0) {
+        if (!IMPLEMENTED_PROTOCOLS.includes(config.protocol) || hopApplyBlockers(config).length > 0) {
           setSubmitting(false);
           setSubmitIntent(null);
           return;
@@ -415,7 +423,7 @@ export default function ProxyConfigForm({ proxy, inbounds, referenceCount, egres
   };
 
   const nameRules = [
-    { required: true, message: "请输入入口名称" },
+    { required: true, message: "请输入该跳入口名称" },
     { validator: async (_rule: unknown, value: unknown) => typeof value === "string" && value.trim() ? Promise.resolve() : Promise.reject(new Error("入口名称不能只有空格")) },
   ];
   const portRules = [
@@ -440,26 +448,27 @@ export default function ProxyConfigForm({ proxy, inbounds, referenceCount, egres
 
   const basicSection = (
     <div className="su-proxy-config-section">
-      <Form.Item name="name" label="入口名称" rules={nameRules}><Input maxLength={128} placeholder="例如 HK Reality 主入口" /></Form.Item>
-      <Form.Item name="exposure" label="用途" rules={[{ required: true, message: "请选择入口用途" }]}><Radio.Group><Radio value="subscription">subscription · 订阅</Radio><Radio value="internal">internal · 内部</Radio></Radio.Group></Form.Item>
+      <Form.Item name="name" label="该跳入口名称" rules={nameRules}><Input maxLength={128} placeholder="例如 HK Reality 主入口" /></Form.Item>
+      <Form.Item name="exposure" label="跳用途" rules={[{ required: true, message: "请选择跳用途" }]}><Radio.Group><Radio value="subscription">subscription · 订阅</Radio><Radio value="internal" disabled={isEntryHop}>internal · 内部</Radio></Radio.Group></Form.Item>
       <Form.Item label="服务器"><Input value={`${server.name} · ${server.region} · ${server.id}`} readOnly disabled suffix={isPublished ? <Tag>已发布入口</Tag> : <Tag>合成资产</Tag>} /></Form.Item>
-      <Form.Item label="出口"><Input value={egressLabel || "本机直出"} readOnly disabled /></Form.Item>
-      {referenceCount > 0 && <Alert type="warning" showIcon title={`该入口资源被 ${referenceCount} 个节点引用`} description="编辑会同步影响所有引用它的节点；如需隔离，请先创建独立入口资源。" />}
+      <Form.Item label="终端出站"><Input value={egressLabel || "本机直出"} readOnly disabled /></Form.Item>
+      {isEntryHop && inbound?.config.exposure === "internal" && currentConfig.exposure !== "subscription" && <Alert type="error" showIcon title="第 1 跳已有 internal 暴露" description="第 1 跳必须改为 subscription；修正该共享入口后才能应用整条链。" />}
+      {referenceCount > 0 && <Alert type="warning" showIcon title={`该入口资源被 ${referenceCount} 条代理链引用`} description="复用后的入口资源仍可编辑，但会同步影响所有引用它的代理链；如需隔离，请先创建独立入口资源。" />}
       {isPublished && <Alert type="info" showIcon title="已发布入口" description="协议选择已锁定；修改其它字段会先保留为草稿，应用后更新共享入口。" />}
       <Alert type="warning" showIcon title="仅前端合成原型" description="不会发起网络请求、读取凭据或回显任何真实或合成密钥内容。" />
-      <Alert type={canApply ? "success" : "warning"} showIcon title={canApply ? "应用前检查通过" : "当前只能保存草稿"} description={blockers.length > 0 ? <Space orientation="vertical" size={2}>{blockers.map((blocker) => <Typography.Text key={blocker}>{blocker}</Typography.Text>)}</Space> : "当前三种实现协议的能力、端口和材料状态均满足应用前检查。"} />
+      <Alert type={canApply ? "success" : "warning"} showIcon title={canApply ? "该跳应用前检查通过" : "当前只能保存草稿"} description={blockers.length > 0 ? <Space orientation="vertical" size={2}>{blockers.map((blocker) => <Typography.Text key={blocker}>{blocker}</Typography.Text>)}</Space> : "当前三种实现协议的能力、端口和材料状态均满足该跳检查；确认时还会校验整条链。"} />
       <Typography.Text type="secondary" className="su-proxy-config-capacity-text">同机入口资源：{resourceCount}{server.maxProxies > 0 ? `/${server.maxProxies}` : ""} · {server.status} · {server.capabilitiesKnown ? "capabilities known" : "capabilities unknown"}</Typography.Text>
     </div>
   );
 
   const listenSection = (
     <div className="su-proxy-config-section">
-      <Form.Item name="listenAddress" label="监听地址" rules={addressRules}><Input placeholder=":: 或 0.0.0.0" /></Form.Item>
+      <Form.Item name="listenAddress" label="该跳监听地址" rules={addressRules}><Input placeholder=":: 或 0.0.0.0" /></Form.Item>
       <Form.Item name="listenPort" label={activeProtocol === "hysteria2" ? "UDP 监听端口" : "监听端口"} rules={portRules}><InputNumber min={1} max={65535} precision={0} style={{ width: "100%" }} /></Form.Item>
       {occupiedResource && <Alert type="error" showIcon title="端口冲突" description={`端口 ${currentConfig.listenPort} 已被入口资源“${occupiedResource.config.name}”占用；同一资源自身不视为冲突。`} />}
       <Form.Item name="advertisedAddress" label="公布地址" rules={advertisedAddressRules}><Input placeholder="example.invalid" /></Form.Item>
       <Form.Item name="advertisedPort" label="公布端口" rules={advertisedPortRules}><InputNumber min={1} max={65535} precision={0} style={{ width: "100%" }} /></Form.Item>
-      <Typography.Text type="secondary" className="su-proxy-config-security-note">入口资源独立占用端口；同一入站被多个节点引用不会重复占用端口。</Typography.Text>
+      <Typography.Text type="secondary" className="su-proxy-config-security-note">每个跳的入口资源独立占用端口；复用同一入站不会重复占用端口。</Typography.Text>
     </div>
   );
 
@@ -478,7 +487,7 @@ export default function ProxyConfigForm({ proxy, inbounds, referenceCount, egres
       <Button onClick={requestClose} disabled={submitting}>取消</Button>
       <Space wrap className="su-proxy-config-submit-actions">
         <Tooltip title={!canSave ? "规划协议只能浏览，不能保存" : undefined}><span><Button disabled={!canSave || submitting} loading={submitting && submitIntent === "draft"} onClick={() => submit("draft")}>保存草稿</Button></span></Tooltip>
-        <Tooltip title={!canApply && blockers.length > 0 ? blockers.join(" ") : undefined}><span><Button type="primary" disabled={!canApply || submitting} loading={submitting && submitIntent === "apply"} onClick={() => submit("apply")}>{isNewInbound ? "创建并应用" : "应用更改"}</Button></span></Tooltip>
+        <Tooltip title={!canApply && blockers.length > 0 ? blockers.join(" ") : undefined}><span><Button type="primary" disabled={!canApply || submitting} loading={submitting && submitIntent === "apply"} onClick={() => submit("apply")}>保存该跳并确认整链</Button></span></Tooltip>
       </Space>
     </div>
   );
@@ -486,7 +495,7 @@ export default function ProxyConfigForm({ proxy, inbounds, referenceCount, egres
   return (
     <>
       {modalContextHolder}
-      <Drawer className="su-proxy-config-drawer" rootClassName={docked ? "su-docked-drawer" : undefined} getContainer={docked ? false : undefined} rootStyle={docked ? { position: "absolute" } : undefined} push={false} open title={isNewInbound ? "配置入站资源" : `编辑入站资源 · ${initialConfig.name}`} size={drawerWidth} keyboard mask={docked ? false : { closable: true }} onClose={requestClose} afterOpenChange={(open) => { if (!open) restoreFocus(); }} footer={footer} styles={{ body: { padding: token.paddingLG }, footer: { padding: token.paddingSM, borderTop: `1px solid ${token.colorBorderSecondary}` } }}>
+      <Drawer className="su-proxy-config-drawer" rootClassName={docked ? "su-docked-drawer" : undefined} getContainer={docked ? false : undefined} rootStyle={docked ? { position: "absolute" } : undefined} push={false} open title={isNewInbound ? `配置第 ${hop.position + 1} 跳入口` : `编辑第 ${hop.position + 1} 跳入口 · ${initialConfig.name}`} size={drawerWidth} keyboard mask={docked ? false : { closable: true }} onClose={requestClose} afterOpenChange={(open) => { if (!open) restoreFocus(); }} footer={footer} styles={{ body: { padding: token.paddingLG }, footer: { padding: token.paddingSM, borderTop: `1px solid ${token.colorBorderSecondary}` } }}>
         <div className="su-proxy-config-form">
           <Form form={form} layout="vertical" initialValues={initialConfig} onValuesChange={handleValuesChange} onFinish={handleFinish} onFinishFailed={(errorInfo) => { setSubmitting(false); setSubmitIntent(null); focusValidationError(errorInfo); }}>
             <HiddenReadinessFields />

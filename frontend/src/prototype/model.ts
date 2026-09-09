@@ -74,8 +74,7 @@ export interface InboundResource {
 }
 
 export interface EgressConfig {
-  type: 'direct' | 'next-hop' | 'block';
-  targetInboundId?: string;
+  type: 'direct' | 'external';
   tag: string;
   domainStrategy: 'prefer_ipv4' | 'prefer_ipv6' | 'ipv4_only' | 'ipv6_only';
   bindInterface: string;
@@ -84,14 +83,19 @@ export interface EgressConfig {
   ruleSet: string;
 }
 
+export interface ChainHop {
+  position: number;
+  serverId: string;
+  inboundId?: string;
+  newInboundDraft?: ProxyConfig;
+}
+
 export interface ProxyDraft {
   id: string;
-  serverId: string;
-  position: { x: number; y: number };
   name: string;
-  inboundId?: string;
+  chain: ChainHop[];
   egress: EgressConfig;
-  published?: { inboundId: string; name: string; egress: EgressConfig };
+  published?: { name: string; chain: ChainHop[]; egress: EgressConfig };
   status: DeploymentStatus;
   dirty: boolean;
   failure?: string;
@@ -242,8 +246,8 @@ export function filterServers(servers: ServerAsset[], filters: ServerFilters): S
   });
 }
 
-export function getInbound(inbounds: InboundResource[], proxy: ProxyDraft) {
-  return inbounds.find(inbound => inbound.id === proxy.inboundId);
+export function getInbound(inbounds: InboundResource[], hop: ChainHop) {
+  return inbounds.find(inbound => inbound.id === hop.inboundId && inbound.serverId === hop.serverId);
 }
 
 export function inboundPortConflict(inbounds: InboundResource[], serverId: string, listenPort: number, exceptInboundId?: string) {
@@ -270,46 +274,44 @@ export function defaultEgress(): EgressConfig {
 }
 
 export function inboundReferences(proxies: ProxyDraft[], inboundId: string, includePublished = false): ProxyDraft[] {
-  return proxies.filter(proxy => proxy.inboundId === inboundId || proxy.egress.targetInboundId === inboundId ||
-    (includePublished && (proxy.published?.inboundId === inboundId || proxy.published?.egress.targetInboundId === inboundId)));
+  return proxies.filter(proxy => proxy.chain.some(hop => hop.inboundId === inboundId) ||
+    (includePublished && proxy.published?.chain.some(hop => hop.inboundId === inboundId)));
 }
 
-export function egressSummary(egress: EgressConfig, inbounds: InboundResource[], published = false): string {
+export function egressSummary(egress: EgressConfig): string {
   if (egress.type === 'direct') return '本机直出 · direct';
-  if (egress.type === 'block') return '阻断 · reject（预留）';
-  const inbound = inbounds.find(item => item.id === egress.targetInboundId);
-  const config = published ? inbound?.published : inbound?.config;
-  return config ? `下一跳 → ${config.name} · ${protocolLabels[config.protocol]} · ${config.advertisedAddress}:${config.advertisedPort}` : '下一跳入口不可用';
+  return '指定外部出口（后续支持）';
 }
 
-export function connectionError(proxies: ProxyDraft[], inbounds: InboundResource[], sourceId: string, targetInboundId: string, servers: ServerAsset[] = serverAssets): string | undefined {
-  const source = proxies.find(proxy => proxy.id === sourceId);
-  const target = inbounds.find(inbound => inbound.id === targetInboundId);
-  if (!source?.inboundId || !target) return '请先配置并保存入口，再选择下一跳。';
-  if (source.inboundId === target.id) return '不能连接到自身入口（包括复用它的节点）。';
-  if (getServer(source.serverId, servers).status !== 'online' || getServer(target.serverId, servers).status !== 'online') return '服务器离线或维护中，不能建立新连线。';
-  if (!getServer(target.serverId, servers).chainTarget) return '目标尚未通过链路能力门禁。';
-  const candidate = proxies.map(proxy => proxy.id === sourceId ? { ...proxy, egress: { ...proxy.egress, type: 'next-hop' as const, targetInboundId } } : proxy);
-  const visit = (inboundId: string, path: string[]): string | undefined => {
-    if (path.includes(inboundId)) return '不允许形成有向环（按入站资源检查）。';
-    if (path.length >= 8) return '一条链最多支持 8 个入口。';
-    for (const proxy of candidate.filter(item => item.inboundId === inboundId && item.egress.type === 'next-hop')) {
-      if (proxy.egress.targetInboundId) {
-        const reason = visit(proxy.egress.targetInboundId, [...path, inboundId]);
-        if (reason) return reason;
-      }
-    }
-    return undefined;
-  };
-  for (const inbound of inbounds) {
-    const reason = visit(inbound.id, []);
-    if (reason) return reason;
+export function chainSummary(proxy: Pick<ProxyDraft, 'chain' | 'egress'>, servers: ServerAsset[] = serverAssets): string {
+  return [...proxy.chain.map(hop => servers.find(server => server.id === hop.serverId)?.name ?? '待选服务器'), egressSummary(proxy.egress)].join(' → ');
+}
+
+export function chainReadiness(proxy: ProxyDraft, inbounds: InboundResource[], servers: ServerAsset[] = serverAssets): string | undefined {
+  if (!proxy.name.trim()) return '代理节点名称不能为空。';
+  if (!proxy.chain.length) return '至少需要一个订阅入口。';
+  if (proxy.egress.type !== 'direct') return '指定外部出口后续支持，R1 请使用本机直出。';
+  const seenInbounds = new Set<string>();
+  for (const [position, hop] of proxy.chain.entries()) {
+    if (hop.position !== position) return '链跳顺序不连续。';
+    if (hop.newInboundDraft) return `第 ${position + 1} 跳：请先保存新入口草稿，再应用整条链。`;
+    const inbound = getInbound(inbounds, hop);
+    if (!inbound) return `第 ${position + 1} 跳：请选择已有入站或新建入口。`;
+    if (seenInbounds.has(inbound.id)) return '同一条链不能重复经过同一个入站；可在不同链中复用。';
+    seenInbounds.add(inbound.id);
+    if (position === 0 && inbound.config.exposure !== 'subscription') return '第一跳必须是订阅入口；请更换或编辑该入站。';
+    const server = servers.find(candidate => candidate.id === hop.serverId);
+    if (!server) return `第 ${position + 1} 跳：服务器不存在。`;
+    if (position > 0 && !server.chainTarget) return `第 ${position + 1} 跳：服务器不支持中转能力。`;
+    const reason = inboundReadiness(inbound, servers);
+    if (reason) return `第 ${position + 1} 跳：${reason}`;
+    if (inboundPortConflict(inbounds, hop.serverId, inbound.config.listenPort, inbound.id)) return `第 ${position + 1} 跳：同机端口已被其他入口占用。`;
   }
-  return undefined;
 }
 
 export function inboundReadiness(inbound: InboundResource, servers: ServerAsset[] = serverAssets): string | undefined {
   const { config } = inbound;
+  if (!['vless-reality', 'shadowsocks', 'hysteria2'].includes(config.protocol)) return '当前协议仅规划，不可应用。';
   const server = getServer(inbound.serverId, servers);
   if (server.status !== 'online' || !server.capabilitiesKnown || !server.protocols.includes(config.protocol)) return '服务器离线、维护中或协议能力不可用。';
   if (!config.name?.trim()) return '入口名称不能为空。';

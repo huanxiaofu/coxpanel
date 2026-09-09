@@ -1,22 +1,22 @@
-# sing-ui R1-C：可复用入站资源与出站意图修订方案
+# sing-ui R1-C：可复用入站资源与线性链代理方案
 
-> 日期：2026-09-09。状态：**R1 待用户确认**。本轮交付范围是前端原型与设计文档；交互仅作模拟，不触及后端真实 API、Agent、SQL、部署或生产服务。本文不代表真实监听已经支持多出站，或资源指标已经达标。
+> 日期：2026-09-09。状态：**R1 线性链原型，待用户确认**。本轮重构前端合成原型，同步本方案与 `docs/REARCHITECT.md`，完成限定测试、build/lint、提交推送及阶段报告。后端 API、Agent、SQL 和生产部署不在范围；本文不代表真实监听、共享监听分流、外部出口或资源指标已经达标。
 >
-> 已完整阅读本轮任务书和既有方案；本轮以本地 `singbox_ui` 参考源码为事实依据，保留旧稿历史内容但不将其测试记成本轮通过。交付证据包括前端原型 diff、构建／回归日志和项目 `tmp/sing-ui-r1-status.md` 阶段报告。
+> 已完整阅读线性链任务书和既有方案；本轮保留旧稿历史上下文，但明确旧自由画布方案已被线性链取代，不将历史测试或实现计划记成本轮通过。
 
-> **最高优先级范围澄清：** R1-C 只覆盖 full Agent 的入站资源复用、ProxyDraft 出站意图、单服务器画布、端口冲突模型、能力分区和出站预览。NAT 与 lite Agent 在本轮明确**后续再议**；第 2、4、5 节及其他旧 lite/NAT 段落仅保留为历史／未来设计，不构成 R1 或 R2 的实施范围、退出门槛或验收前置条件。
+> **最高优先级模型纠正：** 一个代理节点就是一条有序线性链，不是自由连线图。链固定为“第一跳订阅入口 → 中间零或多个入站中转 → 唯一 terminal 出站”；terminal 可以是本机 `direct`，也可以预留外部出口，但 R1 不伪造外部出口可用。禁止分叉、合并和任意多叉连线；跨链只复用 `InboundResource`，不把两条 `ProxyDraft` 链连接成图。NAT 与 lite Agent 在本轮明确**后续再议**；第 2、4、5 节及其他旧 lite/NAT 段落仅保留为历史／未来设计，不构成 R1 或 R2 的实施范围、退出门槛或验收前置条件。
 
 ## 0. 本次决定及覆盖顺序
 
-**产品叫 sing-ui；R1-C 只实现 full Agent 的入口资源与节点意图模型。** 入站通过创建表单生产，出口意图由 ProxyDraft 的 `egress` 表达并可由画布连线投影；同一入口可被多个节点复用。服务器拖入画布、单服务器场景、模板、内部／外部分组、用户生命周期和客户十个覆写方案的既定体系不推翻。
+**产品叫 sing-ui；R1-C 只实现 full Agent 的入站资源复用与线性链节点意图模型。** `ProxyDraft` 由一条有序 `chain` 和一个独立的 terminal `egress` 组成；第一跳是订阅入口，中间跳是可选入站中转，terminal 不是 inbound hop。服务器资产、模板、内部／外部分组、用户生命周期和客户十个覆写方案的既定体系不推翻，但旧自由画布不再是产品模型。
 
 冲突优先级：**NEXT → EXT → R0**；只覆盖下表明确变更，其他已确认约束继续有效。
 
 | 原章节 | 本次替代／补充 | 不变的边界 |
 | --- | --- | --- |
 | R0／EXT 文档品牌、README 标题 | 产品与未来 UI／仓库目标名统一 sing-ui；第 1 节限定迁移边界 | 本轮不重命名远端仓库、运行路径、模块或环境变量 |
-| R0 入口／节点模型 | `InboundResource` 独立持有监听配置；`ProxyDraft` 只引用 `inboundId` 并持有权威 `egress` | 不为每个节点创建重复监听；草稿与已发布快照隔离 |
-| R0 4.1–4.5、5.4 表单中的出站选择器 | 入站可新建或选择已有资源；direct／next-hop／block 由 `ProxyDraft.egress` 表达，连线只是投影 | 同一画布创建、编辑、保存草稿、明确确认发布 |
+| R0 入口／节点模型 | `InboundResource` 独立持有监听配置；`ProxyDraft` 持有有序 `chain` 和独立 terminal `egress` | 不为每个节点创建重复监听；草稿与已发布快照隔离 |
+| R0 4.1–4.5、5.4 表单中的自由出站／画布连接 | 改为 `ChainEditor`：每跳选择服务器并复用已有入站或新建入口；末端单独选择 `direct` 或外部出口预留 | 一链一节点；不分叉、不合并、不把两条链连成图 |
 | R0 6–8 编译、能力和 Agent 协议 | R1-C 只做 full Reality、SS2022、Hysteria2 的能力门禁与出站预览；真实聚合留 R2 | 不把 UI 意图声称为 runtime 已生效 |
 | EXT 1、2.2、3、4、6–11 | 本轮只保留授权、模板、内外组边界的兼容要求 | NAT／lite 运行时、计量与地址自动化不进入 R1-C |
 | EXT 10.3 分期 | R1-C 交互确认；R2 full 真实监听／路由验收；NAT／lite 独立后续评审 | 不将 lite、NAT 或 DDNS 绑定到 R1/R2 退出 |
@@ -25,11 +25,11 @@
 
 - **本轮落地**：本方案、R0、EXT 的产品称呼和文档标题统一 `sing-ui`，README 更名并提供方案入口；未来页面标题、导航品牌、安装包展示名和新文档使用同一拼写，不混用 SingUI／singui。
 - **后续目标**：GitHub 仓库目标名 `sing-ui`，完整 Agent 展示名 `sing-ui Agent`，轻量版 `sing-ui Lite Agent`；拟议二进制名 `sing-ui-agent`／`sing-ui-agent-lite`。这些不是本轮已存在的安装命令。
-- **本轮不执行**：GitHub 仓库 rename、origin 改址、Go module/import 改名、镜像／包名、Compose service、容器／卷、systemd unit、数据库名、环境变量前缀、域名和订阅路径变更。UI 品牌实际代码也不改。
+- **本轮不执行**：GitHub 仓库 rename、origin 改址、Go module/import 改名、镜像／包名、Compose service、容器／卷、systemd unit、数据库名、环境变量前缀、域名和订阅路径变更。仅更新原型导航与链交互，不进行运行标识迁移。
 - **兼容字面量保留**：现有命令中的 `COXPANEL_*`、旧数据库标识、历史任务书路径和当前远端 `github.com:huanxiaofu/coxpanel` 是原项目兼容标识，不机械替换成尚不能工作的命令。历史证据 ID 如 EXT 的 `[CP-G]` 继续有效，不是产品品牌。
 - **实施改名检查表**：另行批准仓库 rename → 确认旧地址兼容与 CI／镜像引用 → 更新项目 origin 和文档示例 → 验证新 clone/build → 逐项灰度运行标识。保留用户、服务器、代理稳定 ID、现有订阅 token／路径和数据卷；不可通过改品牌重建数据库。失败回退须保留兼容入口，不能承诺上游永久重定向。
 
-本轮不提交、不推送；旧名称在兼容命令和来源路径中的出现须明确标注，不算漏改产品品牌。
+本轮验证通过后以 `feat(sing-ui): R1 linear chain proxy model` 提交并推送项目 `origin/main`，停在 R1。旧名称在兼容命令和来源路径中的出现不算漏改产品品牌；不重命名远端仓库。
 
 ## 2. Agent 分层与进程架构（历史设计，R1-C 不验收）
 
@@ -43,7 +43,7 @@
 | 进程／安装 | 保留 Docker＋Agent＋完整 sing-box | 无 Docker 前提；静态二进制＋受控 SS 子进程，或验证后的单进程集成 |
 | 协议 | 当前 Reality、Hysteria2、SS2022 多入站能力 | Shadowsocks 先行，只公布实际通过的 method／TCP／UDP 能力 |
 | 运行时 | 现有 sing-box 编译和发布契约 | 独立小型 SS 运行时优先评估；裁剪 sing-box 作为兼容对照，不强制采用 |
-| 拓扑 | 多级 chain、内部 relay／landing | 首版 direct-only；不能作为 chain 源／中继；满足门禁后可作 full 链路末端 |
+| 拓扑 | 有序线性 chain：订阅入口 → 入站中转* → terminal | 首版 direct-only；不能作为 chain 源／中继；满足门禁后可作 full 链路末端 |
 | 发布 | prepare → apply → ACK、补偿回滚 | 保留同样的确认安全语义，缩小数据和执行范围；不靠心跳冒充 apply |
 | 授权／计量 | 延续 EXT 独立用户凭据、授权租约和流量设计 | 同样按能力验收；不支持用户隔离／撤权／计量的运行时不得加入客户产品 |
 | 安装服务 | 现有容器方式不迁走 | 有 systemd 时极简 unit；无 systemd 时现有 supervisor 前台管理，不以 systemd 为必需 |
@@ -94,9 +94,9 @@ R2 输出同一硬件、版本和负载下的对照记录再定运行时。任�
 
 限制并发、UDP 会话与缓存寿命、配置文档 128 KiB、单批遥测 32 KiB、本地未确认遥测 spool 1 MiB（均为待验证的默认上界，可协商取更小值）。超限显式拒绝或报告 gap，不无限堆内存；削减日志和可选指标，不削减认证／版本校验／回执。缺少可安全停止／回滚的内存余量时拒绝应用，而不是冒险启动第二份完整实例。
 
-## 3. R1-C 数据模型：入站资源与代理草稿
+## 3. R1-C 数据模型：独立资源与有序线性链
 
-> R1-C 只定义 full Agent 的前端原型模型；实际持久化、渲染和运行时行为留到 R2。`InboundResource` 与 `ProxyDraft` 是两个独立对象，不能用“节点已创建”代替“监听已创建”。
+> R1-C 只定义 full Agent 的前端原型模型；实际持久化、渲染和运行时行为留到 R2。`InboundResource` 与 `ProxyDraft` 是两个独立对象，不能用“节点已创建”代替“监听已创建”。旧 `TopologyWorkspace` 的自由图只作为历史迁移输入，不再作为新模型的权威结构。
 
 ### 3.1 独立入站资源
 
@@ -124,38 +124,46 @@ InboundResource {
 - 同一 `serverId` 下，创建表单必须先检查既有 `InboundResource` 并支持“新建入口”或“选择已有入口”。选择已有入口只建立引用，不复制配置、不创建第二个监听。
 - 端口占用 R1 保守以 `serverId + listenPort` 为键，不区分 TCP／UDP 或监听地址；未来再细化传输与地址维度。R1 模型导出 `inboundPortConflict` 时，**占用集合必须包含当前 draft config 与所有非空 `published` 快照**。旧快照尚未成功释放前仍占用端口，不能因节点被删除或草稿失败而消失。
 
-### 3.2 独立代理草稿与权威出站意图
+### 3.2 代理草稿、链跳与 terminal 出站
 
 ```text
 ProxyDraft {
   id: string
   name: string
+  chain: ChainHop[]
+  egress: Terminal
+  status: "draft" | "deploying" | "active" | "failed" | ...
+  dirty: boolean
+  published?: PublishedProxySnapshot
+}
+
+ChainHop {
+  position: number
   serverId: string
-  inboundId: string
-  position: ...
-  status: ...
-  published: ...
-  egress: {
-    type: "direct" | "next-hop" | "block"
-    targetInboundId?: string
-  }
-  ...其他既有草稿／画布字段
+  inboundId?: string
+  newInboundDraft?: InboundDraft
+}
+
+Terminal {
+  type: "direct" | "external"
+  externalRef?: string
 }
 ```
 
-- 本轮只规定 `ProxyDraft` 的独立 `name`、`inboundId` 和权威 `egress` 关系；`serverId`、布局、状态、发布标记等既有字段继续保留，不在此处固化完整接口。节点不拥有端口、协议或材料。多个 `ProxyDraft` 可以复用同一 `inboundId`，并分别拥有 `direct`、不同 `next-hop` 或其他未来意图。
-- `next-hop.targetInboundId` 可引用**任意服务器、任意用途**的已有 `InboundResource`，不要求目标标为 `internal`，不限制为单一上游，也不创建新的监听。目标是入口资源，不是目标 `ProxyDraft`。
-- `egress` 是唯一权威。画布连线只是把 `source.inboundId → targetInboundId` 投影回同一份 `egress`；连线复用目标入口，不读取、复制或跟随目标节点自己的 `egress`。
-- `direct` 的逻辑 tag 为 `direct`；`next-hop` 的逻辑 tag 为 `proxy_out`。这是 R1 预览语义；后端聚合在未来必须按实际 endpoint／身份生成唯一稳定命名并去重，不能为每个节点重复发出相同 tag。`block` 只作为兼容预留，运行时预览应转成现代 `reject`，不生成废弃的 `block` outbound。
-- `egress.type=block` 不接受 `targetInboundId`；`direct` 也不接受目标。`next-hop` 缺少目标、目标不存在或目标未纳入同一草稿快照时阻止确认。
+- `chain` 至少有一个 `ChainHop`，`position` 从 0 连续递增。未完成草稿允许空服务器／入站；应用前每跳必须绑定一个服务器及其入站，第一跳必须是订阅入口。`inboundId` 与 `newInboundDraft` 不能同时存在；新建表单保存后产生资源引用，未保存的新建草稿不可应用。
+- `egress` 是链的唯一末端，**不是一个 inbound hop**。`direct` 表示最后一跳在所属服务器本机直出；`external` 只表示未来外部出口的预留意图，R1 不提供可用选择、不生成伪造 endpoint、不宣称可部署。R1 不再使用 `next-hop` 或 `block` 作为链节点／自由边模型。
+- `ProxyDraft` 不拥有端口、协议或材料正文；这些仍由每个 hop 引用或新建的 `InboundResource` 提供。节点名称、顺序、链状态、dirty 标记和已发布快照与资源配置分开保存。
+- 多个 `ProxyDraft` 可以在任意 hop 复用同一 `InboundResource`，但 `hop.serverId` 必须等于该资源的 `serverId`，不同服务器各取自己的入站。复用只增加引用，不复制端口、协议、材料或快照，也不把其他链的结构带入当前链。
+- 链的顺序本身就是链路顺序；不能添加第二个 terminal，不能在 hop 之间建立额外边，不能从一条链分叉、合并或连接到另一条链。`ChainEditor` 的连接线只是相邻卡片之间的方向提示，不是可持久化的自由图边。
+- 当 `egress.type=external` 时必须保留未就绪／规划态原因；不得使用 `externalRef` 伪造真实可用外部出口。`egress.type=direct` 不需要目标资源，且是 R1 唯一可完成的 terminal。
 
 ### 3.3 资源级校验、共享影响与隔离
 
-- 循环检查建立在入站资源图上：对每条 `ProxyDraft` 暂拟边 `source inboundId → targetInboundId` 做保守 DFS／拓扑检查；自环直接拒绝，任何会形成资源级有向环的组合都拒绝。最多 8 个去重后的入站资源；同一服务器的不同入站可以互相被选择，不沿用旧的“服务器重入”硬限制。
-- 删除 `ProxyDraft` 只删除节点及其出站意图／连线投影，**保留所引用的 `InboundResource` 及其 `published` 快照**。入口资源只有在单独确认且依赖清单为空时才可删除，不得因节点归零而级联删监听。
-- 修改一个已被复用的 `InboundResource`，表单提示引用节点总数（包括下一跳及仍生效的旧引用）；保存后全部影响节点标记草稿。工作区应用确认列出节点、服务器、端口和出站摘要；共享资源尚有未包含的引用时，禁止只应用当前节点。
-- 草稿图、资源 draft config 与已发布图／快照隔离。任何保存、校验、应用或聚合失败，都保留用户输入和原 `published` 快照，不部分晋升、不把部分成功的引用显示成已生效。
-- R1 只模拟这些出站意图和资源关系。真实同一监听如何按身份、用户或路由把不同 `ProxyDraft` 分到不同出站，仍待 R2 设计、渲染和运行验收；不能声称两个真实的无条件 route 会同时生效。
+- 线性链不生成 `ProxyDraft` 之间的拓扑图，也不做旧自由图的分叉／合并／图环推导；校验每条链的顺序、首跳订阅入口、每跳资源完整性和唯一 terminal。同一条链不可重复同一入站，跨链复用资源不改变链的独立性；不沿用旧 DFS 的八跳限制，真实容量门槛留待后续验证。
+- 删除 `ProxyDraft` 只删除节点及其 `chain`／terminal 草稿，**保留所引用的 `InboundResource` 及其 `published` 快照**。入口资源只有在单独确认且依赖清单为空时才可删除，不得因节点归零而级联删监听。
+- 修改一个已被复用的 `InboundResource`，表单提示引用节点和链跳总数（包括首跳、中转跳及仍生效的旧引用）；保存后所有受影响的 `ProxyDraft` 标记 dirty。工作区应用确认列出链、跳位、服务器、端口、协议和 terminal 摘要；共享资源尚有未包含的引用时，禁止只应用当前节点。
+- 草稿链、资源 draft config 与已发布链／快照隔离。任何保存、校验、应用或聚合失败，都保留用户输入和原 `published` 快照，不部分晋升、不把部分成功的引用显示成已生效。
+- R1 只模拟线性链意图和资源关系。真实同一监听如何按身份、用户或路由把复用该资源的不同 `ProxyDraft` 分到各自 terminal，仍待 R2 设计、渲染和运行验收；不能声称共享监听分流或真实部署已经可用。
 
 ### 3.4 能力边界
 
@@ -186,7 +194,7 @@ ProxyDraft {
 
 ### 4.2 简化执行，不简化一致性
 
-1. 保存入口／连线草稿，检查 capabilitiesRevision、图／代理／授权版本和容量；按 profile 选择编译器。未验证的轻量运行时只允许实验草稿，不进客户发布。
+1. 保存入站资源／线性链草稿，检查 capabilitiesRevision、链／代理／授权版本和容量；按 profile 选择编译器。未验证的轻量运行时只允许实验草稿，不进客户发布。
 2. prepare 拉取受限候选，校验 schema、方法、端口、容量、材料和版本；持久化小型候选引用／状态，**此时不监听新端口、不替换在线认证**。
 3. apply 仅应用已匹配 prepare 的候选；优先原生重载，若需停旧起新，明确短暂中断并保留一份 last-known-good。不为模拟热切换在 32／64 MiB 机器上强行双开运行时。
 4. 原子替换受限配置文件、启动／存活和监听检查通过后持久化已应用状态，再发 ACK；崩溃重启核对实际进程和状态，不能凭磁盘 desired 指针发成功。
@@ -205,7 +213,7 @@ ProxyDraft {
 - 例（合成）：监听 `10080/TCP`，管理员登记公网 `edge.example.invalid:21080` 转到该端口；订阅只发布公布 endpoint，Agent 只绑定本机监听端口。示例域名不可真实使用，不含连接凭据。
 - 端口字段只列登记的可用映射；TCP／UDP 映射分别检查，只有 TCP 不开放 UDP。Agent bind 成功不能证明公网映射通，心跳源 IP 也不能证明是入口 IP。
 - 没有公网映射但有经验证的私网／现有覆盖网络地址，可作为 full 可拨入的内部末端；公网和私网都无可达路径时禁止发布可连接入口／连线目标，保留草稿和原因。首版不增加反向隧道、打洞、UPnP、自动端口转发或强制 EasyTier 安装。
-- 全部客户端／链路拨号使用目标 ProxyNode 的受控 endpoint；不得将 `listenAddress=0.0.0.0/::` 当目标地址。端点变更影响上游时需列入发布范围，禁止偷偷改 A 的实际出口。
+- 全部客户端／链路拨号使用链上 hop 的受控 endpoint；不得将 `listenAddress=0.0.0.0/::` 当目标地址。端点变更影响包含该 hop 的链时需列入发布范围，禁止偷偷改链的实际 terminal。
 
 ### 5.2 DDNS 明确放到 R4+
 
@@ -215,45 +223,56 @@ ProxyDraft {
 
 R4+ 独立评审路径：Agent 报 IP 变化观测 → 服务端认证、去抖与地址策略核查 → 管理员批准的 DNS 记录／provider 引用 → 最小权限更新 → 查询确认／TTL 与失败回退 → 按 endpoint 版本触发必要发布及缓存失效。共享 NAT 的出口 IP 变化不等于可入站映射改变；IPv4/IPv6 分开确认。provider 凭据将来只进受控秘密存储，不进 Agent 普通配置、浏览器草稿或文档。DDNS 不解决没有映射的问题。
 
-## 6. R1-C 核心交互：资源复用与出站意图
+## 6. R1-C 核心交互：ChainEditor 与资源复用
 
-### 6.1 画布对象和创建路径
+### 6.1 页面职责和创建路径
 
-**服务器拖入画布后先选择入站资源，再创建 `ProxyDraft`；节点不是监听器。** 新建入口产生一个 `InboundResource`，选择已有入口只建立 `inboundId` 引用。一个入口可以被多个节点复用：建好 HK 的 54321 Reality 直出节点后，该入口仍可被第二个节点复用，或作为其他入口的下一跳目标。
+**一个 `ProxyDraft` 就是一条有序线性链，不是自由画布上的一组可互连卡片。** `/prototype/proxies` 一链一行，展示节点名称、链路摘要、terminal 和草稿／发布状态；不会把多条链拼在一张总图里。`/prototype/topology` 路径保留，页面改为“代理节点链编辑器”：资产面板 + 链列表 + 选中单链编辑。
 
 ```text
-左侧 full ServerNode
-  拖 HK → 新建入口或选择已有入口 → 创建 ProxyDraft
-画布
-  InboundResource HK:54321 Reality
-    ├─ ProxyDraft「HK direct」       egress: direct
-    └─ ProxyDraft「HK via SG」       egress: next-hop → InboundResource SG:443 SS2022
-  ProxyDraft「另一上游 via SG」       egress: next-hop ────────┘
+/prototype/topology
+  代理节点列表       ChainEditor（仅编辑当前一条链）
+  HK 主链             [入口 HK] ──→ [中转 SG] ──→ [出站：本机直出]
+  SG 直出             [入口 SG] ──→ [出站：本机直出]
 ```
 
-R1-C 允许只有一台服务器；一个入口配 `direct` 就是完整的单机闭环，不要求第二台机器或额外落地卡。创建节点不创建重复监听，也不把 direct 伪装成独立出口资源。
+`ChainEditor` 横向展示“入口 → 中转（可选）→ 出站”。第一张卡是客户端订阅入口；中间零或多张卡是入站中转；最右侧 terminal 卡是独立的 `egress`，**不是 `ChainHop`，也不是 inbound**。卡片顺序就是链路顺序，没有分叉、合并、回边或跨链连接。
 
-### 6.2 `ProxyDraft` 出站意图和连线投影
+创建链时先生成 `ProxyDraft` 的名称和第一跳位置。每个 hop 位置都选择“服务器 + 已有 `InboundResource`”，或在该位置新建入口；新建表单在保存前保留本地草稿。服务器资产面板保留，拖动只填充接收卡片对应的 hop；资产按钮填入当前选中跳，空态可创建首条链。新建入口产生独立资源，复用已有入口只建立引用，不生成自由卡片或连线。
+
+R1-C 允许只有一台服务器：一条链含一个入口 hop，terminal 设为 `direct`，就是完整单机闭环。不同 `ProxyDraft` 可以复用同一个 `InboundResource`，但只共享资源，不把两条链连接成一张图，也不复制监听。
+
+旧 `TopologyWorkspace` 的多卡片自由连线是被本模型取代的历史方案。旧坐标、边和“连接到……”交互只用于迁移／兼容说明；新建和编辑统一使用链列表与 `ChainEditor`，不再把自由连线作为产品能力。
+
+### 6.2 `ProxyDraft`、ChainHop 与 terminal 操作
 
 | 操作 | 草稿语义 | 应用与校验 |
 | --- | --- | --- |
-| 新建入口并创建节点 | `ProxyDraft.inboundId = 新资源 id`，默认 `egress.type=direct` | 单服务器即可保存；不要求选择出口，不创建第二个监听 |
-| 选择服务器已有入口 | `ProxyDraft.inboundId = 已有资源 id` | 只增加引用；不复制端口、协议、材料或 `published` 快照 |
-| 节点 A 连接入口 B | `A.egress={type:"next-hop",targetInboundId:B.id}`；边是该字段投影 | B 可属于任意服务器、任意用途；目标是入口资源，不读取 B 节点的出站 |
-| 多个节点连接同一入口 B | 多个 `ProxyDraft` 保存相同 `targetInboundId` | 共享一个监听；每个源节点仍可有不同出站意图 |
-| A 改接 C | 原子替换 `targetInboundId`，不新增监听 | 预览全部影响范围后保存；不得同时保留两个下一跳 |
-| 删除连线／选择本机直出 | 清除目标并设 `egress.type=direct` | 显式提示流量意图变为本机出网；未确认前不改已发布快照 |
-| 目标离线或能力不足 | 目标选择禁用或标记不可用，保留用户草稿 | 不自动回落 direct；失败保留旧 `published` 快照并可重试 |
-| 删除 `ProxyDraft` | 只删除节点、意图和连线投影 | 保留 `InboundResource`、其余引用和 `published` 快照 |
-| 删除入口资源（R2 设计） | R1 不提供入口资源删除操作；移除节点仍可重新选择已有资源 | 未来依赖清单清空并单独确认后才可删；禁止级联删入口 |
-| 编辑共享入口资源 | 修改 draft config，列出所有引用节点及发布项 | 所有引用标记 dirty；一次确认覆盖完整影响范围 |
-| 键盘／小屏连接 | 选源卡“连接到…”再选目标，提交同一 Connect 命令 | 是拖线的无障碍替代，不另存出站对象 |
+| 新建单机链 | 创建 `chain:[{position:0,serverId,inboundId?或newInboundDraft}]`，默认 `egress:{type:"direct"}` | 第一跳必须是订阅入口；单机可完成，不创建额外出口资源 |
+| 选择已有入口 | 指定 hop 写入 `inboundId`，保留资源原配置 | 只增加引用；不复制端口、协议、材料或 `published` 快照 |
+| 在指定 hop 新建入口 | 指定 hop 写入 `newInboundDraft`，保存后产生 `InboundResource` | `inboundId` 与 `newInboundDraft` 不可同时存在；端口冲突阻止保存／应用 |
+| 追加中转 | 在 terminal 前插入一个新的 `ChainHop`，后续 `position` 顺延 | 追加后必须选择服务器及已有／新建入口；terminal 永远保持唯一且在最右侧 |
+| 删除 hop | 删除一个 `ChainHop` 并重新编号；至少保留一个 hop | 允许调整草稿；新首跳若非订阅入口则明确提示并阻止应用，不删除被引用的资源 |
+| 左右调整 | 仅在 `ChainHop[]` 内移动并重排 `position` | 不移动 terminal；实时检查第一跳订阅入口和每跳资源完整性 |
+| 替换 hop | 更换该位置的服务器，再选择已有入口或新建入口草稿 | 只影响当前 hop；共享资源的其他链保持不变，并纳入影响提示 |
+| terminal 设为直出 | `egress={type:"direct"}` | 以最后一个 hop 所在服务器本机出网；R1 唯一可完成的 terminal |
+| terminal 选择外部出口 | `egress={type:"external",externalRef?}`，保持未就绪 | R1 只预留选项和原因，不伪造 endpoint、连接信息或可部署状态 |
+| 删除 `ProxyDraft` | 只删除该链草稿、状态和引用关系 | 保留 `InboundResource`、其他链引用和 `published` 快照 |
+| 编辑共享入口资源 | 修改资源 draft config，列出所有引用链和 hop 位 | 所有受影响链标记 `dirty`；应用须确认完整影响范围 |
+| 资产拖入指定 hop | 目标 hop 接收 `serverId`，然后显示该服务器可复用入口／新建入口 | 不创建节点卡、不建立链间边、不改变其他 hop |
 
-**`egress` 是唯一出站目标权威**，边只是同一 graph revision 的可视投影；不在 payload 留第二份可冲突的 target。`direct` 与零目标一一对应，`next-hop` 与恰好一个 `targetInboundId` 一一对应，`block` 不允许目标。
+链的唯一结构权威是 `chain` 的有序 hop 列和单独的 `egress` terminal；不保存可与之冲突的自由 edge／target。`position` 从 0 连续编号。草稿可保留未完成跳，应用前必须绑定服务器和已保存入站；terminal 永远只有一个。
 
-校验建立在**入站资源图**而不是服务器图：拒绝自环和任何资源级有向环，最多 8 个去重后的入站资源；同一服务器的不同入站可以相互选择，不沿用旧的服务器重入硬限制，也不要求目标标记为 `internal` 或只有一个上游。R1-C 只模拟意图；真实同一监听如何按身份／用户／路由区分不同出站，留待 R2 设计、聚合和运行验收，不能声称两个真实无条件 route 会同时生效。
+### 6.3 线性校验、共享影响与隔离
 
-### 6.3 入站表单、能力门禁和端口占用
+- 校验每条链的第一跳、连续顺序、每跳资源完整性和唯一 terminal；线性序列天然没有分叉、合并和图环，不再运行旧自由图的 DFS／拓扑连线检查。跨链复用 `InboundResource` 不产生跨链边，也不改变链的独立性。
+- 链可经过同机或不同服务器，但每跳只能引用所选服务器的入站；跨链复用只增加引用，不复制监听。同链重复入站被拒绝；同机端口冲突规则覆盖每个 hop 的 draft 与 `published` 快照，不沿用旧自由图八跳上限。
+- 删除 `ProxyDraft` 只删除链，不删除所引用资源。入口资源只有在单独确认且依赖清单为空时才可删除，不得因链归零而级联删监听。
+- 修改被复用的 `InboundResource` 时，表单显示引用链、hop 位和仍生效的旧引用；保存后全部影响链标记 `dirty`。工作区应用确认列出链、跳位、服务器、端口、协议和 terminal 摘要。
+- 草稿、资源 draft config 与已发布快照隔离。保存、校验、模拟部署或未来聚合失败，均保留用户输入和原 `published`，不部分晋升、不把失败候选显示成已生效。
+- R1 只模拟线性链意图和资源关系。真实同一监听如何按身份／用户／路由把复用资源的不同链分到各自 terminal，以及跨服务器真实发布，均留待 R2 设计、实现和运行验收；不得以 UI 预览声称共享监听分流或真实部署可用。
+
+### 6.4 入站表单、能力门禁和端口占用
 
 参考本地 `frontend/components/inbound/*.tsx` 的基础监听、协议字段、TLS／安全和高级字段组织，以及提交 loading、错误定位和协议快捷切换。12 个规划协议目录为 WireGuard、Mixed、VLESS、VMess、Trojan、Shadowsocks、Hysteria2、TUIC、Naive、ShadowTLS、AnyTLS、HTTP；R1-C 只让 full Agent 的 Reality（VLESS+Reality）、SS2022、Hysteria2 可配置，其余按能力显示 disabled／规划原因，不冒充已支持。
 
@@ -268,36 +287,36 @@ R1-C 允许只有一台服务器；一个入口配 `direct` 就是完整的单�
 | `PortAvailabilityField` | 同机端口检查、冲突资源／快照列表和端口自动同步提示 | R1 按 `serverId + listenPort` 保守冲突，不区分 TCP／UDP／监听地址；`inboundPortConflict` 占用集合包含当前 draft 与所有非空 `published`；阻止新资源，不因删节点释放端口 |
 | `AdvancedProxyFields` | 监听地址、公布 endpoint／用途和受控材料引用 | 不提交任意文件路径或核心 JSON；NAT/DDNS 不在本轮 |
 
-编辑共享资源时，表单先提示引用计数，工作区确认覆盖全部影响节点的名称、服务器、端口和出站；真实 publication 差异预览由 R2 实现。草稿、资源 draft config 与模拟发布快照隔离；模拟失败保留用户输入和原 `published`，提供重试，不部分晋升。
+编辑共享资源时，表单先提示引用计数，工作区确认覆盖全部影响链的名称、跳位、服务器、端口和 terminal；真实 publication 差异预览由 R2 实现。草稿、资源 draft config 与模拟发布快照隔离；模拟失败保留用户输入和原 `published`，提供重试，不部分晋升。
 
-### 6.4 出站视图、路由和 DNS 预览
+### 6.5 terminal、路由和 DNS 预览
 
-参考本地 `frontend/components/outbound/*.tsx` 的 direct、block、订阅节点和协议出站表单，以及 `route/routing-config.tsx`、`dns/dns-config.tsx` 的字段与合成方式。R1-C 将出站配置呈现为节点级意图和预览，不把每个 `ProxyDraft` 渲染成真实监听。
+参考本地 `frontend/components/outbound/*.tsx` 的 direct、订阅节点和协议出站表单，以及 `route/routing-config.tsx`、`dns/dns-config.tsx` 的字段与合成方式。R1-C 将 terminal 和策略呈现为链级意图与预览，不把 `ProxyDraft` 或任何 hop 渲染成已经真实部署的监听。
 
-- `direct` 显示本机直出，逻辑 tag 为 `direct`；`next-hop` 显示目标 `InboundResource` 推导出的服务端地址、端口和协议，逻辑 tag 为 `proxy_out`。目标入口的 draft／published endpoint 变化进入影响范围。
-- `next-hop` 只复用目标入口，不跟随或复制目标节点的 `egress`；多个源节点可以共享同一入口。后端未来聚合必须按实际 endpoint／身份生成唯一稳定命名并去重，不能为每个节点重复生成相同 `proxy_out` tag。
-- `block` 仅预留兼容意图；预览使用现代 `reject` action，不生成废弃的 `block` outbound，也不接受 `targetInboundId`。
+- `egress.type="direct"` 显示最后一跳所在服务器本机直出，预览可使用逻辑 tag `direct`。它不创建额外 hop、不创建出口资源，也不要求第二台服务器。
+- `egress.type="external"` 仅为后续外部出口预留；R1 显示 disabled／未就绪原因，不生成地址、凭据、连接参数或可用状态。外部出口不是 inbound hop，也不加入链的 hop 数量。
+- 旧 `next-hop`、`block` 和“边决定出口”的写法属于历史兼容模型。若需显示旧数据，先转换为链的 hop／terminal 或报告人工核对；新 `ProxyDraft` 不保存自由 target。策略层的 `reject` 可以作为预览 action，但不是 terminal 类型。
 - 出站策略可配置 `domainStrategy`、`bindInterface`、sniff、DNS `udp`／`tcp`／`https`／`tls`／`hosts` 五类和 `rule_set` 合成引用；`rule_set` 只记录引用，不下载数据。
 - 路由预览展示 `route`、`sniff`、`hijack-dns`、`reject`、`resolve` action 及其 outbound／resolver 目标；预览不是 runtime 已按规则分流的证据。
-- **R1 仅模拟意图。** 同一真实监听若要让不同身份／用户／路由得到不同出站，R2 必须先验收身份匹配、路由生成、tag 聚合和实际客户端路径；不能把两个无条件 route 同时生效写成当前能力。
+- **R1 仅模拟意图。** 同一真实监听若要让复用该资源的不同链按身份／用户／路由得到不同 terminal，R2 必须先验收匹配、路由生成、tag 聚合、共享监听分流和实际客户端路径；真实部署也必须单独验收，不能用两个无条件 route 同时生效替代。
 
 吸收本地参考工程的分区和生成动作，不照搬 Xray schema、明文私钥展示、任意目标扫描或证书路径；SNI/dest 快捷填写不发网络请求。
 
 ## 7. 前端与用户产品体系的影响
 
-- **服务器资产／详情**：R1-C 画布只接入 full ServerNode，并展示能力状态、可用协议、已有入站资源和发布状态。NAT、lite、运行时容量与地址观测仍是后续设计存档，不在本轮资产门禁或 R1/R2 退出条件中。
-- **入站资源／代理卡**：节点卡显示节点名、入口资源名、服务器、协议／端口、出站意图、引用计数和草稿／已发布状态；材料就绪状态只在表单中显示。移除未发布节点不删除资源；共享资源编辑提示节点及下一跳引用计数，工作区确认完整影响范围。
-- **画布与权限**：新节点可新建入口或选择所属服务器已有入口；`next-hop` 则可引用任意服务器已有入口，目标是入口资源而非目标节点。不能借连线绕过授权、发布或可订阅条件。内外分组、稳定代理 ID、模板隔离和客户十个覆写名额沿用 EXT，不因资源复用扩大公开权限。
-- **用户与订阅**：只有明确确认并成功发布的节点进入用户可见订阅；草稿、失败候选和旧 `published` 快照隔离。保留 EXT 到期、额度、重置、撤权和延迟报告语义；R1 不把模拟的 `proxy_out` 或资源复用计作真实客户端流量链路。
-- **原型验收**：浅深色、375px 手机、桌面布局、八个导航项、键盘“连接到…”、错误定位、离线禁用、未保存离开和焦点返回都要演示；DOM 断言与截图证据分别记录，不能以 build／lint 代替用户交互验收。
+- **服务器资产／详情**：R1-C 的 `ChainEditor` 只接入 full ServerNode，并展示能力状态、可用协议、已有入站资源和发布状态。NAT、lite、运行时容量与地址观测仍是后续设计存档，不在本轮资产门禁或 R1/R2 退出条件中。
+- **入站资源／代理行**：`/prototype/proxies` 每条链一行，显示节点名、入口与中转 hop 摘要、terminal、引用计数和草稿／已发布状态；材料就绪状态只在每跳配置中显示。删除链不删除资源；共享资源编辑提示引用链及 hop 位。
+- **链编辑器与权限**：`/prototype/topology` 是列表＋当前链编辑，不是总图。每个 hop 可新建入口或复用已有 `InboundResource`；资产拖动只填指定 hop。不能借 hop 选择绕过授权、发布或可订阅条件；外部 terminal 仍是 R1 disabled 预留。
+- **用户与订阅**：只有明确确认并成功发布的链进入用户可见订阅；草稿、失败候选和旧 `published` 快照隔离。保留 EXT 到期、额度、重置、撤权和延迟报告语义；R1 不把模拟 terminal 或资源复用计作真实客户端链路。
+- **原型验收**：浅深色、375px 手机、桌面布局、八个导航项、键盘追加／删除／左右调整、每跳配置、错误定位、离线禁用、未保存离开和焦点返回都要演示；DOM 断言与截图证据分别记录，不能以 build／lint 代替用户交互验收。
 
 ## 8. 分期、依赖与回退
 
 | 阶段 | 本次增量 | 退出门槛 |
 | --- | --- | --- |
 | R0-NEXT：方案基线 | 品牌与本轮模型决定；保留用户／模板／授权边界 | 设计范围可追溯；不把文档当作功能已交付 |
-| R1-C：前端原型＋交互确认 | full 服务器画布、`InboundResource` 复用、`ProxyDraft.egress`、Reality／SS2022／Hysteria2 表单、出站／路由／DNS 预览 | 用户完成单机 direct、共享入口、任意下一跳、端口／环／能力门禁和失败重试；只证明模拟意图，不触后端真实 API |
-| R2：full 真实纵切 | 持久化资源与草稿／发布隔离、配置聚合、唯一 `proxy_out` 命名、发布 ACK／回滚、身份／用户／路由分流 | 先设计并验收同一真实监听区分不同出站的匹配与路由；真实客户端路径、端口释放和旧快照回退均有证据；不得以两个无条件 route 代替该验收 |
+| R1-C：前端原型＋交互确认 | `ChainEditor`、一链一行列表、`InboundResource` 复用、`ProxyDraft.chain`＋terminal `egress`、Reality／SS2022／Hysteria2 表单、出站／路由／DNS 预览 | 用户完成单机直出、两跳／三跳排链、共享入口、追加／删除／左右调整、端口／能力门禁和失败重试；R1 只用合成 ACK 演示状态，不触后端真实 API |
+| R2：full 真实纵切 | 持久化资源与链草稿／发布隔离、配置聚合、发布 ACK／回滚、共享监听分流和真实客户端路径 | 共享同一监听的不同链必须先完成身份／用户／路由匹配与分流验收，再确认真实部署、端口释放和旧快照回退；本轮不预先记为通过 |
 | R3：协议能力扩展 | R1 规划协议按 Agent 能力逐项解锁，补齐用户订阅、内外组和授权接入 | 每个协议有能力交集、材料保护、客户端矩阵和回退证据；未验收项保持规划态 |
 | R4：EXT 用户体系收口 | 模板导入、手动覆写、十个方案、生命周期／重置、撤权与计量继续 | 保留 EXT 原退出标准；资源复用不扩大用户权限、不重复计量 |
 | R5：兼容迁移与全站收口 | 旧入口／稳定 ID／订阅链接兼容、客户端矩阵、文档与品牌迁移检查 | 旧数据与授权不丢，旧入口无越权旁路；运行时重命名单独窗口执行 |
@@ -312,7 +331,7 @@ R1-C → R2 的顺序是：先稳定资源／节点模型和前端能力门禁�
 
 - [x] sing-ui 产品命名、README／方案入口一致，旧运行兼容字面量有说明。
 - [x] `InboundResource`／`ProxyDraft` 独立、共享入口、资源级环检、`published` 快照和 `inboundPortConflict` 规则已写明。
-- [x] `egress` 为唯一权威；边只投影；direct／next-hop／block 的 tag、预览 action 和 R1 模拟边界已写明。
+- [x] `ProxyDraft` 的有序 `chain` 与唯一 terminal `egress`、每跳复用／新建、无分叉合并自由连线和 R1 外部出口预留边界已写明。
 - [x] 十二协议目录中 full Reality、SS2022、Hysteria2 可配置；其余九种显示能力规划门禁，不冒充已支持。
 - [x] EXT 模板、内外组、用户、客户覆写、授权和订阅边界不被资源复用绕过。
 - [ ] R1-C 浏览器 UI 验收待独立 loopback 实测；本清单不把文档、DOM 或截图预先记为通过。
@@ -323,10 +342,10 @@ R1-C → R2 的顺序是：先稳定资源／节点模型和前端能力门禁�
 
 | 编号 | 用户操作／场景 | 证据要求 |
 | --- | --- | --- |
-| U1 | 拖 HK，创建 Reality `54321`，填写合成材料就绪状态与 ShortID，应用后显示单机 active；原节点默认 `direct` | 用户流程、保存后的 DOM 状态和截图；不泄露秘密 |
-| U2 | 再拖 HK，选择已有 `54321` 入口保存第二节点；创建 SG 的订阅用途 SS 并作为第二个 HK 节点的 next-hop；原 HK direct 不变；多个节点复用 SG | 入口引用计数、各节点 `egress` 摘要和画布投影；截图不能代替模型语义 |
-| U3 | 新建资源使用已占用 `54321`，并分别尝试 self-loop 与资源级环 | `inboundPortConflict` 显示当前 draft＋非空 `published` 占用；自环／环拒绝；同机不同入口可引用 |
-| U4 | 编辑共享入口，确认完整影响范围；删除节点；制造失败并重试 | 引用节点／下一跳依赖计数、全部引用 dirty；资源及旧快照保留；失败后用户输入和旧 `published` 保留，重试可继续 |
+| U1 | 创建 HK Reality `54321` 入口 hop，设置 terminal 为本机 `direct`，确认单机闭环；外部 terminal 保持 disabled | 链 hop、terminal、保存后的 DOM 状态和截图；不泄露秘密 |
+| U2 | 在 `ChainEditor` 排出 HK 入口 → SG 中转 → `direct`，再追加第二个中转完成三跳链；每跳分别选择已有入口或新建入口 | `position` 连续、每跳服务器／资源引用、唯一 terminal 和链摘要；截图不能代替模型语义 |
+| U3 | 在指定 hop 拖入服务器，尝试占用已有端口；尝试分叉、合并、跨链连接或把 terminal 当 inbound hop | `inboundPortConflict` 显示当前 draft＋非空 `published` 占用；非法结构被拒绝，资产只填目标 hop |
+| U4 | 两条链复用同一 `InboundResource`；编辑共享入口，确认完整影响范围；删除一条链；制造失败并重试 | 引用链／hop 计数、全部引用 dirty；资源及旧快照保留；失败后用户输入和旧 `published` 保留，重试可继续 |
 | U5 | 保存并重开 direct 高级 `domainStrategy`、`bindInterface`、sniff、DNS 五类型和 `rule_set` 引用；检查 route 预览 action | `route`／`sniff`／`hijack-dns`／`reject`／`resolve` 仅为预览；`rule_set` 不下载 |
 | U6 | 配置 Hy2 UDP、证书、obfs、上／下行带宽；查看十二协议目录中其余九种规划门禁 | 表单字段、材料就绪和能力原因真实显示；规划项不可伪装为可发布协议 |
 | U7 | 离线时尝试编辑／保存；检查 375px、桌面浅／深色和八导航布局 | 操作禁用或给出原因；截图证明布局；`pageerror` 为 0，DOM 与视觉结论分开 |
@@ -335,7 +354,7 @@ R1-C → R2 的顺序是：先稳定资源／节点模型和前端能力门禁�
 
 | 编号 | 必须真实验收 | 证据 |
 | --- | --- | --- |
-| R2-1 | 同一监听按身份／用户／路由把不同 `ProxyDraft` 分到不同出站 | 配置聚合、唯一稳定 tag、实际客户端路径和规则匹配；不能用两个无条件 route 同时生效替代 |
+| R2-1 | 同一监听被不同链复用时，按身份／用户／路由把各链分到各自 terminal | 配置聚合、共享监听分流、唯一稳定 tag、实际客户端路径和规则匹配；不能用两个无条件 route 同时生效替代 |
 | R2-2 | full Agent 真实发布、ACK、回滚、端口释放和旧快照恢复 | 成功／失败／重试的版本状态与运行配置一致；失败不部分晋升 |
 | R2-3 | 用户授权、订阅、撤权、计量和模板边界 | EXT 原有门槛继续；资源复用不扩大权限或重复计量 |
 
@@ -345,17 +364,17 @@ R1-C → R2 的顺序是：先稳定资源／节点模型和前端能力门禁�
 
 | 标识 | 本次读取依据 | 使用边界 |
 | --- | --- | --- |
-| TASK | `/opt/data/workspace/tmp/sing-ui-r1c-task.md`（项目外只读） | 用户本轮产品决定与交付要求；只在 panel-design 写文件 |
+| TASK | `/opt/data/workspace/tmp/sing-ui-chain-task.md`（项目外只读） | 用户本轮线性链产品决定与交付要求；仅在 panel-design 修改前端原型、目标文档和阶段报告 |
 | R0／EXT | `docs/REARCHITECT.md`、`docs/REARCHITECT-EXT.md`，原稿全文各 512 行 | 保留原确认体系，本稿明确替代点；历史验证不是本轮结果 |
-| LOCAL-UI | `/opt/data/workspace/tmp/ref-singbox-ui/frontend/components/inbound/*.tsx`、`outbound/*.tsx`、`route/routing-config.tsx`、`dns/dns-config.tsx`、`CLAUDE.md` | 只借鉴本地字段分区、协议表单、路由／DNS 合成和交互组织；不把参考 UI 当作本项目已实现 |
-| LOCAL-AGENT | `/opt/data/workspace/tmp/ref-singbox-ui/server/handlers/singbox.go`、`server/services/singbox.go`（仅相关代码） | 只核对本地 handler／service 的协议与配置事实；不读取凭据文件，不据此声称 R1 已有后端聚合 |
+| LOCAL-UI（历史来源） | `/opt/data/workspace/tmp/ref-singbox-ui/frontend/components/inbound/*.tsx`、`outbound/*.tsx`、`route/routing-config.tsx`、`dns/dns-config.tsx`、`CLAUDE.md` | 保留旧稿的字段与交互组织来源；本轮未重新读取参考工程，不作为当前实现或复验结果 |
+| LOCAL-AGENT（历史来源） | `/opt/data/workspace/tmp/ref-singbox-ui/server/handlers/singbox.go`、`server/services/singbox.go` | 保留旧稿来源；本轮未复验，不据此声称 R1 已有真实聚合 |
 | LOCAL-PROJECT | `frontend/src/prototype/` 当前原型与 `frontend/package.json` | 只用于本轮前端原型／脚本边界；不把 build／lint 当作用户验收 |
 
 为可追溯保留任务书和本地参考定位：
 
 ```text
-任务书：/opt/data/workspace/tmp/sing-ui-r1c-task.md
+任务书：/opt/data/workspace/tmp/sing-ui-chain-task.md
 singbox_ui 参考：/opt/data/workspace/tmp/ref-singbox-ui/
 ```
 
-本轮不使用外链作最新性断言，也不读取凭据、连接数据库、运行参考项目或接触生产。设计文档修改限本文件，阶段记录更新在项目 `tmp/`；浏览器验收的实际命令、端口、exit code、DOM／截图和 `pageerror` 结果以阶段报告为准，不预先宣称通过。
+本轮不使用外链作最新性断言，也不读取凭据、连接数据库、运行参考项目或接触生产。设计文档修改限本文件与 `docs/REARCHITECT.md`；前端原型完成限定测试及 build/lint 后与文档一同提交推送。浏览器实际命令、回环端口、exit code、DOM／截图和 `pageerror` 结果记录在 `tmp/sing-ui-r1-status.md`，不得提前宣称通过；交付后停在 R1 等待用户确认。

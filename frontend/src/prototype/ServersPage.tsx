@@ -32,7 +32,7 @@ function serverCounts(serverId: string, inbounds: InboundResource[], proxies: Pr
   const owned = inbounds.filter(inbound => inbound.serverId === serverId);
   return {
     inbounds: owned.length,
-    nodes: proxies.filter(proxy => proxy.serverId === serverId).length,
+    nodes: proxies.filter(proxy => proxy.chain.some(hop => hop.serverId === serverId)).length,
     references: owned.reduce((total, inbound) => total + inboundReferences(proxies, inbound.id).length, 0),
   };
 }
