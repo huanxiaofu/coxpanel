@@ -4,7 +4,8 @@ import { Link } from 'react-router-dom';
 import { PageHeader } from './AppShell';
 import { Icon } from './Icon';
 import { ServerResources, ServerStatusBadge, ServerTags, ServerTrafficSummary } from './ServerPresentation';
-import { filterServers, formatBytes, inboundReferences, nextTrafficReset, protocolLabels, serverStatusLabels, trafficCycleLabel, validateServerTraffic } from './model';
+import ServerInOutView from './ServerInOutView';
+import { filterServers, formatBytes, getServerEgressRefs, getServerInbounds, nextTrafficReset, protocolLabels, serverStatusLabels, trafficCycleLabel, validateServerTraffic } from './model';
 import type { InboundResource, ProxyDraft, ServerAsset, ServerFilters, ServerTraffic } from './model';
 import { useWorkspace } from './WorkspaceProvider';
 
@@ -29,11 +30,11 @@ function tagsError(tags: string[]) {
 }
 
 function serverCounts(serverId: string, inbounds: InboundResource[], proxies: ProxyDraft[]) {
-  const owned = inbounds.filter(inbound => inbound.serverId === serverId);
+  const owned = getServerInbounds(serverId, inbounds, proxies);
   return {
     inbounds: owned.length,
-    nodes: proxies.filter(proxy => proxy.chain.some(hop => hop.serverId === serverId)).length,
-    references: owned.reduce((total, inbound) => total + inboundReferences(proxies, inbound.id).length, 0),
+    nodes: getServerEgressRefs(serverId, proxies).length,
+    references: owned.reduce((total, inbound) => total + inbound.refs.length, 0),
   };
 }
 
@@ -60,8 +61,8 @@ function ServerUsage({ serverId, inbounds, proxies }: { serverId: string; inboun
   const counts = serverCounts(serverId, inbounds, proxies);
   return <dl className="su-server-usage" aria-label="当前会话入口与节点统计">
     <div><dt>独立入口</dt><dd>{counts.inbounds}</dd></div>
-    <div><dt>代理节点</dt><dd>{counts.nodes}</dd></div>
-    <Tooltip title="按各入口的节点引用数求和，包含监听与下一跳引用；同一节点可引用多个入口。"><div><dt>入口引用</dt><dd>{counts.references}</dd></div></Tooltip>
+    <Tooltip title="仅统计以此服务器为最后一跳的链；草稿与旧模拟发布按链去重。"><div><dt>出口（代理节点）</dt><dd>{counts.nodes}</dd></div></Tooltip>
+    <Tooltip title="按各入口的链引用数求和，保留草稿与旧模拟发布；同一条链可引用多个入口。"><div><dt>入口引用</dt><dd>{counts.references}</dd></div></Tooltip>
   </dl>;
 }
 
@@ -115,6 +116,7 @@ function ServerEditor({ server, initialTab, now, onClose }: { server: ServerAsse
   }
 
   const detailsTab = <div className="su-server-tab-content">
+    <ServerInOutView server={server} />
     <section className="su-server-editor-section"><h3>连接与 Agent</h3><ServerAddresses server={server} />
       <dl className="su-server-facts">
         <div><dt>Hostname</dt><dd>{server.address}</dd></div>
@@ -211,7 +213,7 @@ export default function ServersPage() {
   }
 
   return <div className="su-standard-page su-servers-page">
-    <PageHeader title="服务器节点" description="掌握节点状态、资源与流量策略，用标签快速找到下一台服务器。" actions={<Link to="/prototype/topology"><Button type="primary" icon={<Icon name="topology" />}>前往拓扑编排</Button></Link>} />
+    <PageHeader title="服务器节点" description="点击服务器名称或详情，展开入口与出口分区，查看入站复用、链引用及出站配置。" actions={<Link to="/prototype/topology"><Button type="primary" icon={<Icon name="topology" />}>前往拓扑编排</Button></Link>} />
     <Alert showIcon type="info" title="R1 合成工作区 · 所有数据及操作均为模拟" description="修改仅存于本次会话，刷新页面后清空。资源与心跳非实时；时间统一为 UTC，流量刷新仅预览，不会执行真实刷新或清零历史。lite 规划中，不可配置。" />
     <div className="su-servers-overview">{overview.map(stat => <section key={stat.label} className={`su-servers-stat is-${stat.tone}`}><div><span>{stat.label}</span><Icon name={stat.icon} size={18} /></div><strong>{stat.value}</strong><small>{stat.detail}</small></section>)}</div>
     <section className="su-server-toolbar" aria-label="服务器筛选">
@@ -226,7 +228,7 @@ export default function ServersPage() {
     </section>
     {busy && <Alert className="su-servers-busy" type="warning" showIcon title="模拟应用进行中：可以查看详情，编辑与停用 / 启用暂不可用。" />}
     {servers.length ? <div className="su-servers-grid">{servers.map(server => <article className={`su-server-card is-${server.status}`} key={server.id} aria-label={`${server.name} 服务器`}>
-      <div className="su-server-card-heading"><span className="su-region-icon">{server.country}</span><div><h2>{server.name}</h2><p>{server.region} · {server.address}</p></div><ServerStatusBadge status={server.status} /></div>
+      <div className="su-server-card-heading"><span className="su-region-icon">{server.country}</span><div><h2><button className="su-server-name-button" aria-label={`查看 ${server.name} 入口与出口`} onClick={() => setEditor({ id: server.id, tab: 'details' })}>{server.name}<Icon name="chevron" size={14} /></button></h2><p>{server.region} · {server.address}</p></div><ServerStatusBadge status={server.status} /></div>
       <div className="su-server-agent"><span>Agent {server.agentVersion || '未上报'}</span><Tag>{server.profile}</Tag><span>lite 规划中</span></div>
       <p className="su-server-heartbeat">最后心跳 <time dateTime={server.lastHeartbeat}>{utcDate(server.lastHeartbeat)}</time></p>
       <ServerAddresses server={server} />
@@ -239,7 +241,7 @@ export default function ServersPage() {
         <Popconfirm disabled={busy} title={server.status === 'maintenance' ? '模拟启用此服务器？' : '模拟停用此服务器？'} description={<div className="su-server-toggle-description">{server.status === 'maintenance' ? '仅退出维护并恢复原来的在线 / 离线状态，不代表真实上线。' : '仅将状态改为维护，不执行真实停机。'}不删除任何入口或代理节点，刷新页面后清空。</div>} okText={server.status === 'maintenance' ? '确认模拟启用' : '确认模拟停用'} cancelText="取消" okButtonProps={{ disabled: busy }} onConfirm={() => toggleServer(server)}><Button size="small" danger={server.status !== 'maintenance'} disabled={busy} icon={<Icon name={server.status === 'maintenance' ? 'check' : 'pause'} size={12} />}>{server.status === 'maintenance' ? '启用' : '停用'}</Button></Popconfirm>
       </footer>
     </article>)}</div> : <section className="su-server-empty"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={state.servers.length ? '没有匹配的服务器，试试其他名称、标签或地区。' : '当前合成工作区暂无服务器。'}>{hasFilters && <Button onClick={() => setFilters(defaultFilters)}>清空筛选</Button>}</Empty></section>}
-    <p className="su-servers-footer-note"><Icon name="help" size={14} />独立入口与代理节点可复用；引用数基于工作区草稿。服务器维护不会删除拓扑。</p>
+    <p className="su-servers-footer-note"><Icon name="help" size={14} />入口可跨链复用；出口就是代理节点的终点。引用保留草稿与旧模拟发布，服务器维护不会删除链。</p>
     {selected && editor && <ServerEditor key={selected.id} server={selected} initialTab={editor.tab} now={now} onClose={() => setEditor(null)} />}
   </div>;
 }

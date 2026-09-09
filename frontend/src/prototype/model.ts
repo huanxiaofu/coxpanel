@@ -101,6 +101,26 @@ export interface ProxyDraft {
   failure?: string;
 }
 
+export interface ServerChainReference {
+  proxyId: string;
+  name: string;
+  publishedName?: string;
+  status: DeploymentStatus;
+  dirty: boolean;
+  draft: boolean;
+  published: boolean;
+}
+
+export interface ServerInboundView {
+  inbound: InboundResource;
+  refs: ServerChainReference[];
+}
+
+export interface ServerEgressRef extends ServerChainReference {
+  draftEgress?: EgressConfig;
+  publishedEgress?: EgressConfig;
+}
+
 export const protocolCatalog: Array<{ value: Protocol; label: string; fields: string[] }> = [
   { value: 'wireguard', label: 'WireGuard', fields: ['监听 / MTU', '地址', 'Peer 公钥引用 / Allowed IPs', '保活'] },
   { value: 'mixed', label: 'Mixed', fields: ['HTTP + SOCKS 监听', '用户认证引用', '系统代理'] },
@@ -276,6 +296,55 @@ export function defaultEgress(): EgressConfig {
 export function inboundReferences(proxies: ProxyDraft[], inboundId: string, includePublished = false): ProxyDraft[] {
   return proxies.filter(proxy => proxy.chain.some(hop => hop.inboundId === inboundId) ||
     (includePublished && proxy.published?.chain.some(hop => hop.inboundId === inboundId)));
+}
+
+function serverChainReference(proxy: ProxyDraft, draft: boolean, published: boolean): ServerChainReference {
+  return {
+    proxyId: proxy.id,
+    name: proxy.name,
+    ...(proxy.published ? { publishedName: proxy.published.name } : {}),
+    status: proxy.status,
+    dirty: proxy.dirty,
+    draft,
+    published,
+  };
+}
+
+function chainHasInbound(chain: ChainHop[], serverId: string, inboundId: string): boolean {
+  return chain.some(hop => hop.serverId === serverId && hop.inboundId === inboundId);
+}
+
+function chainEndsOnServer(chain: ChainHop[], serverId: string): boolean {
+  const lastHop = chain[chain.length - 1];
+  return Boolean(serverId && lastHop?.serverId === serverId);
+}
+
+export function getServerInbounds(serverId: string, inbounds: InboundResource[], proxies: ProxyDraft[]): ServerInboundView[] {
+  return inbounds.filter(inbound => inbound.serverId === serverId).map(inbound => {
+    const refs = new Map<string, ServerChainReference>();
+    for (const proxy of proxies) {
+      const draft = chainHasInbound(proxy.chain, serverId, inbound.id);
+      const published = proxy.published ? chainHasInbound(proxy.published.chain, serverId, inbound.id) : false;
+      if (draft || published) refs.set(proxy.id, serverChainReference(proxy, draft, published));
+    }
+    return { inbound, refs: [...refs.values()] };
+  });
+}
+
+export function getServerEgressRefs(serverId: string, proxies: ProxyDraft[]): ServerEgressRef[] {
+  const refs = new Map<string, ServerEgressRef>();
+  for (const proxy of proxies) {
+    const draft = chainEndsOnServer(proxy.chain, serverId);
+    const publishedSnapshot = proxy.published;
+    const published = Boolean(publishedSnapshot && chainEndsOnServer(publishedSnapshot.chain, serverId));
+    if (!draft && !published) continue;
+    refs.set(proxy.id, {
+      ...serverChainReference(proxy, draft, published),
+      ...(draft ? { draftEgress: proxy.egress } : {}),
+      ...(published && publishedSnapshot ? { publishedEgress: publishedSnapshot.egress } : {}),
+    });
+  }
+  return [...refs.values()];
 }
 
 export function egressSummary(egress: EgressConfig): string {

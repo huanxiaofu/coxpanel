@@ -18,13 +18,13 @@ export default function EgressConfigForm({ proxy, onSave, onClose }: EgressConfi
   const terminalServer = terminalHop ? servers.find(server => server.id === terminalHop.serverId) : undefined;
   const canSave = config.type === 'direct';
   const chainLabel = proxy.chain.length
-    ? proxy.chain.map((hop, index) => `${index === 0 ? '入口' : `中转 ${index}`} · ${servers.find(server => server.id === hop.serverId)?.name ?? '待选服务器'}`).join(' → ')
+    ? proxy.chain.map((hop, index) => `${index === proxy.chain.length - 1 ? proxy.chain.length === 1 ? '入口兼出口（代理节点）' : '出口（代理节点）' : index === 0 ? '入口' : `中转 ${index}`} · ${servers.find(server => server.id === hop.serverId)?.name ?? '待选服务器'}`).join(' → ')
     : '尚未选择链跳';
   const update = (patch: Partial<EgressConfig>) => setConfig(current => ({ ...current, ...patch }));
 
   return <Modal open title="代理链终端出站" width={640} onCancel={onClose} cancelText="取消（不保存）" okText="保存代理链出站草稿" okButtonProps={{ disabled: !canSave }} onOk={() => { if (!canSave) return; void form.validateFields().then(values => onSave(String(values.name).trim(), config)).catch(() => undefined); }}>
     <Form form={form} layout="vertical" initialValues={{ name: proxy.name }}>
-      <Form.Item name="name" label="整条代理链名称" rules={[{ required: true, whitespace: true, message: '请输入代理链名称' }, { max: 80 }]}><Input maxLength={80} /></Form.Item>
+      <Form.Item name="name" label="出口名称（代理节点 / 链名）" rules={[{ required: true, whitespace: true, message: '请输入出口名称' }, { max: 80 }]}><Input maxLength={80} /></Form.Item>
       <Descriptions size="small" column={1} bordered items={[
         { key: 'chain', label: '线性链路', children: chainLabel },
         { key: 'terminal', label: '终端出网服务器', children: terminalServer ? `${terminalServer.name} · ${terminalServer.region}` : '尚未选择最后一跳服务器' },

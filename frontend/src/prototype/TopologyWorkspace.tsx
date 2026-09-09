@@ -62,7 +62,7 @@ export default function TopologyWorkspace() {
   };
   return <div className="su-topology-page su-linear-page">
     {modalContext}
-    <PageHeader title="代理节点链编辑器" description="一个代理节点 = 一条链：入口 → 中转（可选）→ 出站。不分叉。" actions={<><Button disabled={locked} onClick={() => setAssetsVisible(!assetsVisible)}>{assetsVisible ? '收起资产' : '显示资产'}</Button><Button disabled={locked || !state.proxies.some(proxy => proxy.dirty)} onClick={() => requestApply(state.proxies.map(proxy => proxy.id))}>应用全部更改</Button><Button type="primary" disabled={locked} icon={<Icon name="plus" />} onClick={() => createChain()}>新建代理节点</Button></>} />
+    <PageHeader title="代理节点链编辑器" description="一个代理节点 = 一条链的出口：入口 → 中转（可选）→ 出口（代理节点）。不分叉；末跳复用入站，不额外复制监听。" actions={<><Button disabled={locked} onClick={() => setAssetsVisible(!assetsVisible)}>{assetsVisible ? '收起资产' : '显示资产'}</Button><Button disabled={locked || !state.proxies.some(proxy => proxy.dirty)} onClick={() => requestApply(state.proxies.map(proxy => proxy.id))}>应用全部更改</Button><Button type="primary" disabled={locked} icon={<Icon name="plus" />} onClick={() => createChain()}>新建代理节点</Button></>} />
     <div className="su-prototype-banner"><span><strong>R1 合成原型</strong> · 刷新清空，仅模拟整条链部署</span><span>不接后端 · 不生成真实订阅 · 停在 R1 等你确认</span></div>
     {error && <Alert className="su-workspace-error" type="error" showIcon closable onClose={() => setError('')} title={error} />}
     <div className={`su-workspace su-linear-workspace ${!assetsVisible ? 'assets-hidden' : ''} ${editing ? 'has-editor' : ''}`}>

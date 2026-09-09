@@ -2,7 +2,7 @@ import { Alert, Button, Empty, Tag } from 'antd';
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import AppShell, { navigation, PageHeader } from './AppShell';
 import { Icon } from './Icon';
-import { chainSummary, getInbound, protocolLabels, statusLabels } from './model';
+import { chainSummary, egressSummary, getInbound, protocolLabels, statusLabels } from './model';
 import { ThemeProvider } from './ThemeProvider';
 import TopologyWorkspace from './TopologyWorkspace';
 import ServersPage from './ServersPage';
@@ -19,17 +19,20 @@ function Overview() {
       ['已生效 · 模拟', state.proxies.filter(proxy => proxy.published).length, '不代表真实部署回执'],
       ['待应用草稿', state.proxies.filter(proxy => proxy.dirty).length, '不会进入真实订阅'],
     ].map(([label, value, detail]) => <section className="su-stat-card" key={label}><span>{label}</span><strong>{value}</strong><small>{detail}</small></section>)}</div>
-    <section className="su-welcome-card"><span className="su-section-eyebrow">YOUR FIRST WORKSPACE</span><h2>一个代理节点，就是一条链。</h2><p>入口 → 中转（可选）→ 出站，横向排列，不分叉。<br />一台服务器的入口 + 本机直出即可闭环；每跳可复用已有入站。</p><Link to="/prototype/topology"><Button icon={<Icon name="arrow" />}>编辑代理链</Button></Link></section>
+    <section className="su-welcome-card"><span className="su-section-eyebrow">YOUR FIRST WORKSPACE</span><h2>代理节点就是出口，一条链一个节点。</h2><p>入口 → 中转（可选）→ 出口（代理节点），横向排列，不分叉。<br />单台服务器可兼入口与出口；每跳可复用已有入站。</p><Link to="/prototype/topology"><Button icon={<Icon name="arrow" />}>编辑代理链</Button></Link></section>
     <div className="su-overview-steps"><div><b>01</b><h3>选择入口</h3><p>第一跳提供客户端订阅入口，仅使用合成资源。</p></div><div><b>02</b><h3>按需追加中转</h3><p>每跳选择服务器并复用或新建入站；顺序即链路。</p></div><div><b>03</b><h3>确认唯一出站</h3><p>最后一跳本机直出，整条链作为一个节点模拟生效。</p></div></div>
   </div>;
 }
 
 function Proxies() {
   const { state } = useWorkspace();
-  return <div className="su-standard-page"><PageHeader title="代理节点" description="一条链一个条目；客户端看到的一个节点，就是完整的入口 → 中转（可选）→ 出站。" actions={<Link to="/prototype/topology"><Button type="primary" icon={<Icon name="plus" />}>前往链编辑器</Button></Link>} />
-    {!state.proxies.length ? <div className="su-placeholder-page"><Empty description="一个代理节点 = 一条链：入口 → 中转（可选）→ 出站"><Link to="/prototype/topology"><Button type="primary">创建第一条代理链</Button></Link></Empty></div> : <div className="su-proxy-table-wrap"><table className="su-proxy-table"><thead><tr><th>代理节点 / 完整链</th><th>线性链路（草稿）</th><th>订阅入口协议 / 端口</th><th>状态</th><th>操作</th></tr></thead><tbody>{state.proxies.map(proxy => {
+  return <div className="su-standard-page"><PageHeader title="代理节点（出口）" description="代理节点 = 出口；客户端节点名即链的出口名。一条链一个条目，首跳提供订阅连接，末跳决定出口服务器。仅合成预览，不生成真实订阅。" actions={<Link to="/prototype/topology"><Button type="primary" icon={<Icon name="plus" />}>前往链编辑器</Button></Link>} />
+    {!state.proxies.length ? <div className="su-placeholder-page"><Empty description="创建代理节点就是创建出口：入口 → 中转（可选）→ 出口（代理节点）"><Link to="/prototype/topology"><Button type="primary">创建第一条代理链</Button></Link></Empty></div> : <div className="su-proxy-table-wrap"><table className="su-proxy-table"><thead><tr><th>出口名称（代理节点）</th><th>出口服务器 / 协议（草稿）</th><th>线性链路（草稿）</th><th>订阅入口协议 / 端口</th><th>状态</th><th>操作</th></tr></thead><tbody>{state.proxies.map(proxy => {
       const inbound = proxy.chain[0] && getInbound(state.inbounds, proxy.chain[0]);
-      return <tr key={proxy.id}><td><strong><Icon name="proxy" size={15} /> {proxy.name || '未命名链'}</strong><small>{proxy.chain.length} 跳入站 · {Math.max(0, proxy.chain.length - 1)} 个中转 · 唯一出站</small></td><td><strong className="su-chain-table-summary">{chainSummary(proxy, state.servers)}</strong>{proxy.published && <small>已发布 · 模拟：{chainSummary(proxy.published, state.servers)}</small>}</td><td>{inbound ? `${protocolLabels[inbound.config.protocol]} / ${inbound.config.listenPort}` : '待配置订阅入口'}</td><td><span className={`su-status su-status-${proxy.status}`}><span />{statusLabels[proxy.status]}</span></td><td><Link to={`/prototype/topology?chain=${encodeURIComponent(proxy.id)}`}>编辑此链</Link></td></tr>;
+      const lastHop = proxy.chain.at(-1);
+      const exitInbound = lastHop && getInbound(state.inbounds, lastHop);
+      const exitServer = state.servers.find(server => server.id === lastHop?.serverId);
+      return <tr key={proxy.id}><td><Tag color="green">出口 · 代理节点</Tag><strong className="su-proxy-egress-name"><Icon name="proxy" size={15} /> {proxy.name || '未命名出口'}</strong><small>{proxy.chain.length} 跳 · {Math.max(0, proxy.chain.length - 2)} 个中转{proxy.chain.length === 1 ? ' · 入口与出口同机' : ' · 末跳为出口'}</small></td><td className="su-proxy-egress-cell"><strong>{exitServer?.name ?? '待选择出口服务器'}</strong><small>{exitInbound ? `${protocolLabels[exitInbound.config.protocol]} / :${exitInbound.config.listenPort} · ${exitInbound.config.name}` : '待选择出口入站'}</small><small>{egressSummary(proxy.egress)}</small></td><td><strong className="su-chain-table-summary">{chainSummary(proxy, state.servers)}</strong>{proxy.published && <small>已发布 · 模拟：{proxy.published.name} · {chainSummary(proxy.published, state.servers)}</small>}</td><td>{inbound ? `${protocolLabels[inbound.config.protocol]} / ${inbound.config.listenPort}` : '待配置订阅入口'}</td><td><span className={`su-status su-status-${proxy.status}`}><span />{statusLabels[proxy.status]}</span></td><td><Link to={`/prototype/topology?chain=${encodeURIComponent(proxy.id)}`}>编辑此链</Link></td></tr>;
     })}</tbody></table></div>}
   </div>;
 }
