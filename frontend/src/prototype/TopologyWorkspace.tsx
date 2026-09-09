@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Alert, Button, Empty, Modal, Progress, Switch } from 'antd';
 import { useSearchParams } from 'react-router-dom';
+import { newId } from '../utils/id';
 import { PageHeader } from './AppShell';
 import ChainEditor from './ChainEditor';
 import EgressConfigForm from './EgressConfigForm';
@@ -28,7 +29,7 @@ export default function TopologyWorkspace() {
   const selectChain = (id: string) => { setSearchParams({ chain: id }); setSelectedPosition(0); setError(''); };
   const createChain = (server?: ServerAsset) => {
     if (locked) return;
-    const proxy: ProxyDraft = { id: crypto.randomUUID(), name: `代理链 ${state.proxies.length + 1}`, chain: [{ position: 0, serverId: server?.id ?? '' }], egress: defaultEgress(), status: 'draft', dirty: true };
+    const proxy: ProxyDraft = { id: newId(), name: `代理链 ${state.proxies.length + 1}`, chain: [{ position: 0, serverId: server?.id ?? '' }], egress: defaultEgress(), status: 'draft', dirty: true };
     dispatch({ type: 'add', proxy });
     selectChain(proxy.id);
   };
@@ -48,7 +49,7 @@ export default function TopologyWorkspace() {
   };
   const saveHop = (config: ProxyConfig, apply: boolean) => {
     if (!selected || !editing) return;
-    const action: WorkspaceAction = { type: 'save-hop', id: selected.id, position: editing.position, config, resourceId: editing.inboundId ?? crypto.randomUUID() };
+    const action: WorkspaceAction = { type: 'save-hop', id: selected.id, position: editing.position, config, resourceId: editing.inboundId ?? newId() };
     const next = workspaceReducer(state, action);
     if (next === state) { setError('入站未保存：请检查同机端口冲突、服务器状态或入口容量。'); return; }
     dispatch(action);

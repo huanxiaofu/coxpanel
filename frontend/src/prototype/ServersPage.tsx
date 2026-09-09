@@ -174,7 +174,7 @@ function ServerEditor({ server, initialTab, now, onClose }: { server: ServerAsse
     <div className="su-server-drawer-identity"><span className="su-region-icon">{server.country}</span><div><h2>{server.name}</h2><p>{server.region} · {server.address}</p></div><ServerStatusBadge status={server.status} /></div>
     {busy && <Alert className="su-server-editor-alert" showIcon type="warning" title="工作区正在模拟应用，暂时禁止编辑与保存；当前草稿保留。" />}
     {saveError && <div role="alert" className="su-server-editor-alert"><Alert showIcon type="error" title={saveError} /></div>}
-    <Tabs activeKey={activeTab} onChange={key => setActiveTab(key as EditorTab)} items={[{ key: 'details', label: '详情', children: detailsTab }, { key: 'traffic', label: '流量配置', children: trafficTab }, { key: 'tags', label: '标签', children: tagsTab }]} />
+    <Tabs activeKey={activeTab} onChange={key => setActiveTab(key as EditorTab)} items={[{ key: 'details', label: '详情 · 入站/出站', children: detailsTab }, { key: 'traffic', label: '流量配置', children: trafficTab }, { key: 'tags', label: '标签', children: tagsTab }]} />
   </Drawer>;
 }
 
@@ -237,7 +237,7 @@ export default function ServersPage() {
       <ServerUsage serverId={server.id} inbounds={state.inbounds} proxies={state.proxies} />
       <ServerTrafficSummary traffic={server.traffic} now={now} />
       <div className="su-server-card-tags"><ServerTags tags={server.tags} /></div>
-      <footer className="su-server-card-actions"><Button size="small" onClick={() => setEditor({ id: server.id, tab: 'details' })}>详情</Button><Button size="small" disabled={busy} onClick={() => setEditor({ id: server.id, tab: 'tags' })}>编辑标签</Button>
+      <footer className="su-server-card-actions"><Button size="small" onClick={() => setEditor({ id: server.id, tab: 'details' })}>详情 · 入站/出站</Button><Button size="small" disabled={busy} onClick={() => setEditor({ id: server.id, tab: 'tags' })}>编辑标签</Button>
         <Popconfirm disabled={busy} title={server.status === 'maintenance' ? '模拟启用此服务器？' : '模拟停用此服务器？'} description={<div className="su-server-toggle-description">{server.status === 'maintenance' ? '仅退出维护并恢复原来的在线 / 离线状态，不代表真实上线。' : '仅将状态改为维护，不执行真实停机。'}不删除任何入口或代理节点，刷新页面后清空。</div>} okText={server.status === 'maintenance' ? '确认模拟启用' : '确认模拟停用'} cancelText="取消" okButtonProps={{ disabled: busy }} onConfirm={() => toggleServer(server)}><Button size="small" danger={server.status !== 'maintenance'} disabled={busy} icon={<Icon name={server.status === 'maintenance' ? 'check' : 'pause'} size={12} />}>{server.status === 'maintenance' ? '启用' : '停用'}</Button></Popconfirm>
       </footer>
     </article>)}</div> : <section className="su-server-empty"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={state.servers.length ? '没有匹配的服务器，试试其他名称、标签或地区。' : '当前合成工作区暂无服务器。'}>{hasFilters && <Button onClick={() => setFilters(defaultFilters)}>清空筛选</Button>}</Empty></section>}

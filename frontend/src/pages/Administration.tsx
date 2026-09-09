@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Alert, Button, Card, Empty, Form, Input, InputNumber, Modal, Popconfirm, Select, Space, Table, Tag, message } from 'antd';
 import { api } from '../api';
 import type { AdminUser, Invite, Node, NodeGroup } from '../api';
+import { newId } from '../utils/id';
 
 interface SectionError {
   groups?: string;
@@ -192,7 +193,7 @@ export default function Administration() {
               render: (_value: unknown, invite: Invite) => invite.maxUses != null && invite.usedCount != null ? Math.max(invite.maxUses - invite.usedCount, 0) : '-',
             },
             { title: '到期时间', dataIndex: 'expiresAt', render: (value: string | null) => value || '-' },
-						{title:'邮件邀请',render:(_:unknown,invite:Invite)=><Button disabled={!invite.id} onClick={()=>{setDialog({kind:'invite',id:invite.id!});p2Form.setFieldsValue({email:'',requestId:crypto.randomUUID()});setP2Error('');}}>发送邀请邮件</Button>},
+						{title:'邮件邀请',render:(_:unknown,invite:Invite)=><Button disabled={!invite.id} onClick={()=>{setDialog({kind:'invite',id:invite.id!});p2Form.setFieldsValue({email:'',requestId:newId()});setP2Error('');}}>发送邀请邮件</Button>},
           ]}
         />
       </Card>
