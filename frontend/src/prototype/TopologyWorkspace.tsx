@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useId, useMemo, useRef, useState } from 'react';
 import { Alert, App, Button, Dropdown, Modal, Progress, Select, Switch, Tag } from 'antd';
 import { Background, Controls, Handle, MarkerType, Position, ReactFlow, ReactFlowProvider, useReactFlow } from '@xyflow/react';
 import type { Connection, Edge, Node, NodeProps } from '@xyflow/react';
@@ -58,6 +58,8 @@ function WorkspaceCanvas() {
   const { modal, message } = App.useApp();
   const flow = useReactFlow<ProxyFlowNode>();
   const canvas = useRef<HTMLDivElement>(null);
+  const draftIdPrefix = useId();
+  const nextDraftId = useRef(0);
   const [editorId, setEditorId] = useState<string>();
   const [connectingId, setConnectingId] = useState<string>();
   const [targetId, setTargetId] = useState<string>();
@@ -91,7 +93,7 @@ function WorkspaceCanvas() {
   const addServer = (server: ServerAsset, position?: ProxyDraft['position']) => {
     if (busy || !server.online || !server.capabilitiesKnown) return;
     if (state.proxies.filter(proxy => proxy.serverId === server.id).length >= server.maxProxies) { setError('该服务器已达到演示容量上限。'); return; }
-    const id = `draft:${crypto.randomUUID()}`;
+    const id = `draft:${draftIdPrefix}:${nextDraftId.current++}`;
     const count = state.proxies.length;
     const placement = position ?? { x: 70 + (count % 2) * 380, y: 95 + Math.floor(count / 2) * 330 };
     dispatch({ type: 'add', proxy: { id, serverId: server.id, position: placement, status: 'draft', dirty: false } });
@@ -176,13 +178,17 @@ function WorkspaceCanvas() {
           const flowNode = (event.target as HTMLElement).closest('.react-flow__node');
           if (event.key === 'Enter' && flowNode && event.target === flowNode && flowNode.getAttribute('data-id')) configure(flowNode.getAttribute('data-id')!);
         }}
-        onDragOver={event => { if (event.dataTransfer.types.includes(SERVER_DRAG_TYPE)) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; setDraggingOver(true); } }}
-        onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as globalThis.Node | null)) setDraggingOver(false); }}
+        onDragOver={event => { if (!busy && Array.from(event.dataTransfer.types).includes(SERVER_DRAG_TYPE)) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; setDraggingOver(true); } }}
+        onDragLeave={event => { if (!(event.relatedTarget instanceof globalThis.Node) || !event.currentTarget.contains(event.relatedTarget)) setDraggingOver(false); }}
         onDrop={event => {
           event.preventDefault(); setDraggingOver(false);
+          if (busy || !Array.from(event.dataTransfer.types).includes(SERVER_DRAG_TYPE)) return;
           const serverId = event.dataTransfer.getData(SERVER_DRAG_TYPE);
           const server = serverAssets.find(asset => asset.id === serverId);
-          if (server) addServer(server, flow.screenToFlowPosition({ x: event.clientX - 155, y: event.clientY - 38 }));
+          if (server) {
+            const position = flow.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+            addServer(server, { x: position.x - 159, y: position.y - 38 });
+          }
         }}>
         <div className="su-canvas-label"><span className="su-live-dot" />默认工作区 <span>/</span> <span>{state.proxies.length} 个入口 · {state.links.length} 条连线</span></div>
         <ReactFlow<ProxyFlowNode> nodes={nodes} edges={edges} nodeTypes={nodeTypes} colorMode={dark ? 'dark' : 'light'} minZoom={0.25} maxZoom={1.6} defaultViewport={{ x: 0, y: 0, zoom: 1 }} deleteKeyCode={null} zoomOnDoubleClick={false} nodesConnectable={!busy}
