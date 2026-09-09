@@ -1,13 +1,13 @@
-export type Protocol = "vless-reality" | "shadowsocks" | "hysteria2";
-export type DeploymentStatus = "draft" | "preparing" | "applying" | "active" | "failed";
+export type Protocol = 'wireguard' | 'mixed' | 'vless-reality' | 'vmess' | 'trojan' | 'shadowsocks' | 'hysteria2' | 'tuic' | 'naive' | 'shadowtls' | 'anytls' | 'http';
+export type DeploymentStatus = 'draft' | 'preparing' | 'applying' | 'active' | 'failed';
 
 export interface ServerAsset {
   id: string;
   name: string;
   region: string;
   country: string;
-  profile: "full" | "lite";
-  network: "public" | "nat";
+  profile: 'full';
+  network: 'public';
   online: boolean;
   capabilitiesKnown: boolean;
   protocols: Protocol[];
@@ -18,13 +18,12 @@ export interface ServerAsset {
   memory: string;
   address: string;
   certificates: Array<{ id: string; name: string; domain: string }>;
-  portMappings: Array<{ listenPort: number; publicPort: number }>;
 }
 
 export interface ProxyConfig {
   name: string;
   protocol: Protocol;
-  exposure: "subscription" | "internal";
+  exposure: 'subscription' | 'internal';
   listenPort: number;
   listenAddress: string;
   advertisedAddress: string;
@@ -34,117 +33,187 @@ export interface ProxyConfig {
   materialReady: boolean;
   shortIdReady: boolean;
   method: string;
-  network: "tcp" | "tcp-udp";
+  network: 'tcp' | 'tcp-udp';
   certificateRef: string;
+  fingerprint: string;
+  utls: boolean;
+  alpn: string;
+  obfs: 'none' | 'salamander';
+  obfsReady: boolean;
+  upMbps: number;
+  downMbps: number;
+  ignoreClientBandwidth: boolean;
+  tcpFastOpen: boolean;
+  multiplex: boolean;
+}
+
+export interface InboundResource {
+  id: string;
+  serverId: string;
+  config: ProxyConfig;
+  published?: ProxyConfig;
+}
+
+export interface EgressConfig {
+  type: 'direct' | 'next-hop' | 'block';
+  targetInboundId?: string;
+  tag: string;
+  domainStrategy: 'prefer_ipv4' | 'prefer_ipv6' | 'ipv4_only' | 'ipv6_only';
+  bindInterface: string;
+  sniff: boolean;
+  dns: { type: 'udp' | 'tcp' | 'https' | 'tls' | 'hosts'; server: string };
+  ruleSet: string;
 }
 
 export interface ProxyDraft {
   id: string;
   serverId: string;
   position: { x: number; y: number };
-  config?: ProxyConfig;
-  published?: ProxyConfig;
+  name: string;
+  inboundId?: string;
+  egress: EgressConfig;
+  published?: { inboundId: string; name: string; egress: EgressConfig };
   status: DeploymentStatus;
   dirty: boolean;
   failure?: string;
 }
 
-export interface ProxyLink {
-  source: string;
-  target: string;
-}
+export const protocolCatalog: Array<{ value: Protocol; label: string; fields: string[] }> = [
+  { value: 'wireguard', label: 'WireGuard', fields: ['监听 / MTU', '地址', 'Peer 公钥引用 / Allowed IPs', '保活'] },
+  { value: 'mixed', label: 'Mixed', fields: ['HTTP + SOCKS 监听', '用户认证引用', '系统代理'] },
+  { value: 'vless-reality', label: 'VLESS / Reality', fields: ['UUID 引用 / flow', 'TCP', 'Reality / TLS', 'uTLS'] },
+  { value: 'vmess', label: 'VMess', fields: ['UUID 引用 / alterId', '传输', 'TLS', '复用'] },
+  { value: 'trojan', label: 'Trojan', fields: ['密码引用', '传输', 'TLS / 证书', '复用'] },
+  { value: 'shadowsocks', label: 'Shadowsocks / SS2022', fields: ['method', '密码引用', 'TCP / UDP', '复用'] },
+  { value: 'hysteria2', label: 'Hysteria2', fields: ['UDP 监听', '认证 / obfs', '带宽', 'TLS / 证书'] },
+  { value: 'tuic', label: 'TUIC', fields: ['UUID / 密码引用', '拥塞控制', 'UDP relay', 'TLS / ALPN'] },
+  { value: 'naive', label: 'Naive', fields: ['用户认证引用', '网络', 'TLS / 证书'] },
+  { value: 'shadowtls', label: 'ShadowTLS', fields: ['版本', '用户密码引用', '握手目标', 'strict mode'] },
+  { value: 'anytls', label: 'AnyTLS', fields: ['用户密码引用', 'padding', 'TLS / 证书', '会话参数'] },
+  { value: 'http', label: 'HTTP', fields: ['监听', '用户认证引用', 'TLS / 证书'] },
+];
 
-export const protocolLabels: Record<Protocol, string> = {
-  "vless-reality": "Reality",
-  shadowsocks: "Shadowsocks",
-  hysteria2: "Hysteria2",
-};
-
+export const protocolLabels = Object.fromEntries(protocolCatalog.map(protocol => [protocol.value, protocol.label])) as Record<Protocol, string>;
 export const statusLabels: Record<DeploymentStatus, string> = {
-  draft: "草稿",
-  preparing: "准备中 · 模拟",
-  applying: "应用中 · 模拟",
-  active: "已生效 · 模拟",
-  failed: "应用失败 · 模拟",
+  draft: '草稿', preparing: '准备中 · 模拟', applying: '应用中 · 模拟', active: '已生效 · 模拟', failed: '应用失败 · 模拟',
 };
 
 export const serverAssets: ServerAsset[] = [
   {
-    id: "server-hk", name: "HK-zouter", region: "香港", country: "HK", profile: "full",
-    network: "public", online: true, capabilitiesKnown: true,
-    protocols: ["vless-reality", "shadowsocks", "hysteria2"],
-    methods: ["2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm", "2022-blake3-chacha20-poly1305"],
-    udp: true, chainTarget: true, maxProxies: 12, memory: "2 GB", address: "hk.example.invalid",
-    certificates: [{ id: "demo-cert-hk", name: "HK 演示证书（合成引用）", domain: "hk.example.invalid" }], portMappings: [],
+    id: 'server-hk', name: 'HK-zouter', region: '香港', country: 'HK', profile: 'full', network: 'public',
+    online: true, capabilitiesKnown: true, protocols: ['vless-reality', 'shadowsocks', 'hysteria2'],
+    methods: ['2022-blake3-aes-128-gcm', '2022-blake3-aes-256-gcm', '2022-blake3-chacha20-poly1305'],
+    udp: true, chainTarget: true, maxProxies: 12, memory: '2 GB', address: 'hk.example.invalid',
+    certificates: [{ id: 'demo-cert-hk', name: 'HK 演示证书（合成引用）', domain: 'hk.example.invalid' }],
   },
   {
-    id: "server-sg", name: "SG-edge", region: "新加坡", country: "SG", profile: "full",
-    network: "public", online: true, capabilitiesKnown: true,
-    protocols: ["vless-reality", "shadowsocks", "hysteria2"],
-    methods: ["2022-blake3-aes-128-gcm", "2022-blake3-aes-256-gcm"],
-    udp: true, chainTarget: true, maxProxies: 8, memory: "1 GB", address: "sg.example.invalid",
-    certificates: [], portMappings: [],
+    id: 'server-sg', name: 'SG-edge', region: '新加坡', country: 'SG', profile: 'full', network: 'public',
+    online: true, capabilitiesKnown: true, protocols: ['vless-reality', 'shadowsocks', 'hysteria2'],
+    methods: ['2022-blake3-aes-128-gcm', '2022-blake3-aes-256-gcm'], udp: true, chainTarget: true,
+    maxProxies: 8, memory: '1 GB', address: 'sg.example.invalid', certificates: [],
   },
   {
-    id: "server-jp", name: "NAT-JP", region: "日本", country: "JP", profile: "lite",
-    network: "nat", online: true, capabilitiesKnown: true, protocols: ["shadowsocks"],
-    methods: ["2022-blake3-aes-128-gcm"], udp: false, chainTarget: false,
-    maxProxies: 2, memory: "64 MB · 目标档", address: "jp.example.invalid", certificates: [],
-    portMappings: [{ listenPort: 10080, publicPort: 21080 }, { listenPort: 10081, publicPort: 21081 }],
-  },
-  {
-    id: "server-us", name: "US-standby", region: "美国", country: "US", profile: "full",
-    network: "public", online: false, capabilitiesKnown: false, protocols: [], methods: [],
-    udp: false, chainTarget: false, maxProxies: 0, memory: "未上报", address: "us.example.invalid",
-    certificates: [], portMappings: [],
+    id: 'server-us', name: 'US-standby', region: '美国', country: 'US', profile: 'full', network: 'public',
+    online: false, capabilitiesKnown: false, protocols: [], methods: [], udp: false, chainTarget: false,
+    maxProxies: 0, memory: '未上报', address: 'us.example.invalid', certificates: [],
   },
 ];
 
 export function getServer(serverId: string): ServerAsset {
   const server = serverAssets.find(asset => asset.id === serverId);
-  if (!server) throw new Error("找不到合成服务器");
+  if (!server) throw new Error('找不到合成服务器');
   return server;
 }
 
-export function defaultConfig(server: ServerAsset, proxies: ProxyDraft[]): ProxyConfig {
-  const usedPorts = new Set(proxies.filter(proxy => proxy.serverId === server.id).flatMap(proxy => [proxy.config?.listenPort, proxy.published?.listenPort]));
-  let listenPort = server.profile === "lite" ? 10080 : 443;
-  while (usedPorts.has(listenPort)) listenPort += 1;
-  if (server.network === "nat") listenPort = server.portMappings.find(mapping => !usedPorts.has(mapping.listenPort))?.listenPort ?? 10080;
-  const protocol = server.protocols[0] ?? "vless-reality";
+export function getInbound(inbounds: InboundResource[], proxy: ProxyDraft) {
+  return inbounds.find(inbound => inbound.id === proxy.inboundId);
+}
+
+export function inboundPortConflict(inbounds: InboundResource[], serverId: string, listenPort: number, exceptInboundId?: string) {
+  return inbounds.find(inbound => inbound.id !== exceptInboundId && inbound.serverId === serverId &&
+    [inbound.config.listenPort, inbound.published?.listenPort].includes(listenPort));
+}
+
+export function defaultConfig(server: ServerAsset, inbounds: InboundResource[]): ProxyConfig {
+  let listenPort = 443;
+  while (inboundPortConflict(inbounds, server.id, listenPort)) listenPort += 1;
+  const protocol = server.protocols[0] ?? 'vless-reality';
   return {
-    name: `${server.name}-${protocolLabels[protocol]}`, protocol, exposure: server.profile === "lite" ? "internal" : "subscription",
-    listenPort, listenAddress: "::", advertisedAddress: server.address,
-    advertisedPort: server.portMappings.find(mapping => mapping.listenPort === listenPort)?.publicPort ?? listenPort,
-    sni: "example.invalid", target: "example.invalid:443", materialReady: false, shortIdReady: false,
-    method: server.methods[0] ?? "", network: "tcp", certificateRef: "",
+    name: `${server.name}-${protocolLabels[protocol]}`, protocol, exposure: 'subscription', listenPort,
+    listenAddress: '::', advertisedAddress: server.address, advertisedPort: listenPort,
+    sni: 'example.invalid', target: 'example.invalid:443', materialReady: false, shortIdReady: false,
+    method: server.methods[0] ?? '', network: 'tcp', certificateRef: '', fingerprint: 'chrome', utls: true,
+    alpn: '', obfs: 'none', obfsReady: false, upMbps: 100, downMbps: 100, ignoreClientBandwidth: false,
+    tcpFastOpen: false, multiplex: false,
   };
 }
 
-export function connectionError(proxies: ProxyDraft[], links: ProxyLink[], connection: ProxyLink): string | undefined {
-  const source = proxies.find(proxy => proxy.id === connection.source);
-  const target = proxies.find(proxy => proxy.id === connection.target);
-  if (!source?.config || !target?.config) return "请先配置并保存两张入口卡，再建立连线。";
-  if (source.id === target.id) return "入口不能连接到自己。";
-  if (getServer(source.serverId).profile === "lite") return "lite 首版仅支持本机直出，不能作为连线源。";
-  if (!getServer(source.serverId).online || !getServer(target.serverId).online) return "服务器离线，不能建立新连线。";
-  if (target.config.exposure !== "internal") return "下一跳必须是独立的内部入口，不能使用订阅入口。";
-  if (!getServer(target.serverId).chainTarget) return "目标尚未通过链路能力门禁；lite 联合发布留待 R3 验证。";
-  if (links.some(link => link.target === target.id && link.source !== source.id)) return "该内部入口已有上游，请创建独立内部入口。";
-  const candidate = [...links.filter(link => link.source !== source.id), connection];
-  for (const start of proxies) {
-    const visitedProxies = new Set<string>();
-    const visitedServers = new Set<string>();
-    let cursor: ProxyDraft | undefined = start;
-    while (cursor) {
-      if (visitedProxies.has(cursor.id)) return "不允许形成有向环。";
-      if (visitedServers.has(cursor.serverId)) return "同一条链不能重复经过同一台服务器。";
-      visitedProxies.add(cursor.id);
-      visitedServers.add(cursor.serverId);
-      if (visitedProxies.size > 8) return "一条链最多支持 8 个入口。";
-      const nextId = candidate.find(link => link.source === cursor?.id)?.target;
-      cursor = proxies.find(proxy => proxy.id === nextId);
+export function defaultEgress(): EgressConfig {
+  return { type: 'direct', tag: 'direct', domainStrategy: 'prefer_ipv4', bindInterface: '', sniff: false, dns: { type: 'udp', server: 'dns.example.invalid' }, ruleSet: '' };
+}
+
+export function inboundReferences(proxies: ProxyDraft[], inboundId: string, includePublished = false): ProxyDraft[] {
+  return proxies.filter(proxy => proxy.inboundId === inboundId || proxy.egress.targetInboundId === inboundId ||
+    (includePublished && (proxy.published?.inboundId === inboundId || proxy.published?.egress.targetInboundId === inboundId)));
+}
+
+export function egressSummary(egress: EgressConfig, inbounds: InboundResource[], published = false): string {
+  if (egress.type === 'direct') return '本机直出 · direct';
+  if (egress.type === 'block') return '阻断 · reject（预留）';
+  const inbound = inbounds.find(item => item.id === egress.targetInboundId);
+  const config = published ? inbound?.published : inbound?.config;
+  return config ? `下一跳 → ${config.name} · ${protocolLabels[config.protocol]} · ${config.advertisedAddress}:${config.advertisedPort}` : '下一跳入口不可用';
+}
+
+export function connectionError(proxies: ProxyDraft[], inbounds: InboundResource[], sourceId: string, targetInboundId: string): string | undefined {
+  const source = proxies.find(proxy => proxy.id === sourceId);
+  const target = inbounds.find(inbound => inbound.id === targetInboundId);
+  if (!source?.inboundId || !target) return '请先配置并保存入口，再选择下一跳。';
+  if (source.inboundId === target.id) return '不能连接到自身入口（包括复用它的节点）。';
+  if (!getServer(source.serverId).online || !getServer(target.serverId).online) return '服务器离线，不能建立新连线。';
+  if (!getServer(target.serverId).chainTarget) return '目标尚未通过链路能力门禁。';
+  const candidate = proxies.map(proxy => proxy.id === sourceId ? { ...proxy, egress: { ...proxy.egress, type: 'next-hop' as const, targetInboundId } } : proxy);
+  const visit = (inboundId: string, path: string[]): string | undefined => {
+    if (path.includes(inboundId)) return '不允许形成有向环（按入站资源检查）。';
+    if (path.length >= 8) return '一条链最多支持 8 个入口。';
+    for (const proxy of candidate.filter(item => item.inboundId === inboundId && item.egress.type === 'next-hop')) {
+      if (proxy.egress.targetInboundId) {
+        const reason = visit(proxy.egress.targetInboundId, [...path, inboundId]);
+        if (reason) return reason;
+      }
     }
+    return undefined;
+  };
+  for (const inbound of inbounds) {
+    const reason = visit(inbound.id, []);
+    if (reason) return reason;
   }
+  return undefined;
+}
+
+export function inboundReadiness(inbound: InboundResource): string | undefined {
+  const { config } = inbound;
+  const server = getServer(inbound.serverId);
+  if (!server.online || !server.capabilitiesKnown || !server.protocols.includes(config.protocol)) return '服务器离线或协议能力不可用。';
+  if (!config.name?.trim()) return '入口名称不能为空。';
+  if (![config.listenPort, config.advertisedPort].every(port => Number.isInteger(port) && port >= 1 && port <= 65535)) return '端口必须为 1-65535 的整数。';
+  const hostname = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/;
+  if (!config.listenAddress?.trim() || !config.advertisedAddress?.trim()) return '监听地址与公布地址不能为空。';
+  if (config.protocol !== 'shadowsocks' && (!hostname.test(config.sni) || config.sni.length > 253)) return 'SNI 必须是合法域名。';
+  if (config.protocol === 'vless-reality') {
+    const target = /^(\[[0-9a-fA-F:.]+\]|[A-Za-z0-9.-]+):(\d+)$/.exec(config.target);
+    if (!target || !Number.isInteger(Number(target[2])) || Number(target[2]) < 1 || Number(target[2]) > 65535) return 'Reality dest 必须是合法 host:port。';
+    if (target[1].startsWith('[')) {
+      try { new URL(`https://${config.target}`); } catch { return 'Reality dest 的 IPv6 地址不合法。'; }
+    } else if (!hostname.test(target[1]) || target[1].length > 253) return 'Reality dest 主机名不合法。';
+    if (!config.fingerprint?.trim() || config.network !== 'tcp') return 'Reality 需要指纹与 TCP 传输。';
+  }
+  if (!config.materialReady) return '请先生成合成认证材料引用。';
+  if (config.protocol === 'vless-reality' && !config.shortIdReady) return 'Reality Short ID 尚未就绪。';
+  if (config.protocol === 'shadowsocks' && !server.methods.includes(config.method)) return 'Shadowsocks 方法不在能力清单。';
+  if (config.protocol === 'hysteria2' && (!server.udp || !server.certificates.some(certificate => certificate.id === config.certificateRef))) return 'Hysteria2 需要 UDP 能力和可用证书引用。';
+  if (config.protocol === 'hysteria2' && config.obfs === 'salamander' && !config.obfsReady) return '请生成 obfs 合成密码引用。';
+  if (config.protocol === 'hysteria2' && ![config.upMbps, config.downMbps].every(bandwidth => Number.isFinite(bandwidth) && bandwidth >= 0)) return 'Hysteria2 带宽必须是非负数字。';
+  if (config.network === 'tcp-udp' && !server.udp) return '服务器未声明 UDP 能力。';
   return undefined;
 }

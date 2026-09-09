@@ -34,7 +34,7 @@ function Topbar({ title, onMenu }: { title: string; onMenu: () => void }) {
     <div className="su-topbar-location"><Button className="su-mobile-menu" aria-label="打开导航" icon={<Icon name="menu" />} onClick={onMenu} /><span className="su-breadcrumb-root">工作空间</span><Icon name="chevron" size={12} /><strong>{title}</strong></div>
     <div className="su-topbar-actions"><Tag color="blue">R1 交互原型</Tag><Select aria-label="主题模式" value={preference} onChange={setPreference} popupMatchSelectWidth={false} options={[{ value: 'system', label: '跟随系统' }, { value: 'light', label: '浅色主题' }, { value: 'dark', label: '深色主题' }]} /><Button type="text" aria-label="原型体验指南" icon={<Icon name="help" />} onClick={() => setHelp(true)} /></div>
     <Modal title="欢迎体验 sing-ui" open={help} onCancel={() => setHelp(false)} footer={<Button type="primary" onClick={() => setHelp(false)}>开始体验</Button>}>
-      <ol className="su-guide"><li>把 HK-zouter 拖到画布，双击卡片或点击「配置入口」。</li><li>选择 Reality，检查 SNI / dest，在安全区生成演示材料，点击「创建并应用」。</li><li>等待「准备 → 应用 → 已生效」模拟进度，再拖同一服务器创建 Shadowsocks。</li><li>在 SG-edge 创建内部入口，拖动卡片右侧把手连接到它；也可用「连接到…」。</li><li>连线仅改草稿，点击「应用更改」才推进模拟发布。</li></ol><p>所有地址、能力、证书和成功状态都是合成演示，不具备真实连接能力。刷新会清空工作区，仅主题偏好会保留。R1 需你确认视觉与手感，之后才进入 R2。</p>
+      <ol className="su-guide"><li>把 HK-zouter 拖到画布，点击「新建入口」，或「选择已有入口」。</li><li>选择 VLESS / Reality，填写 54321、SNI / dest，在安全区生成合成材料引用，然后应用。</li><li>本机直出即可完成单服务器闭环。再次拖入 HK，选择同一个 54321 入口创建第二个节点。</li><li>在 SG-edge 创建 SS 入口；HK 第二个节点「配置出站」选择下一跳引用它，也可拖线到它。</li><li>直出节点保留原出站；共享入口不重复占端口。应用更改仅推进模拟发布。</li></ol><p>所有地址、能力、证书和成功状态都是合成演示，不具备真实连接能力。刷新清空工作区。NAT / 轻量 agent 后续再议；停在 R1 等你确认，不进入 R2。</p>
     </Modal>
   </header>;
 }

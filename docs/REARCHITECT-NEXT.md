@@ -1,23 +1,25 @@
-# sing-ui R0-NEXT：品牌、分层 Agent 与入口／连线修订方案
+# sing-ui R1-C：可复用入站资源与出站意图修订方案
 
-> 日期：2026-09-08。状态：**产品方案修订稿，未批准实施**。三项产品决定已纳入设计；本文不代表功能已经实现或资源指标已经达标。本轮只修改文档，不修改应用源码、SQL、依赖、Agent、部署或生产服务。
+> 日期：2026-09-09。状态：**R1 待用户确认**。本轮交付范围是前端原型与设计文档；交互仅作模拟，不触及后端真实 API、Agent、SQL、部署或生产服务。本文不代表真实监听已经支持多出站，或资源指标已经达标。
 >
-> 已完整阅读本轮任务书和 `docs/REARCHITECT.md`、`docs/REARCHITECT-EXT.md` 各 512 行原稿。当前工程静态基线 `ef2c8d4`，本地 3x-ui 基线 `2ec6c73`；保留原稿历史证据日期，不将旧轮次测试记成本轮通过。当前验证和交付结果见 `tmp/rearchitect-next-report.md`。
+> 已完整阅读本轮任务书和既有方案；本轮以本地 `singbox_ui` 参考源码为事实依据，保留旧稿历史内容但不将其测试记成本轮通过。交付证据包括前端原型 diff、构建／回归日志和项目 `tmp/sing-ui-r1-status.md` 阶段报告。
+
+> **最高优先级范围澄清：** R1-C 只覆盖 full Agent 的入站资源复用、ProxyDraft 出站意图、单服务器画布、端口冲突模型、能力分区和出站预览。NAT 与 lite Agent 在本轮明确**后续再议**；第 2、4、5 节及其他旧 lite/NAT 段落仅保留为历史／未来设计，不构成 R1 或 R2 的实施范围、退出门槛或验收前置条件。
 
 ## 0. 本次决定及覆盖顺序
 
-**产品叫 sing-ui；服务器有完整／轻量两种 Agent；入口通过创建表单生产，出口通过流程卡连线定义。** 两层节点模型、服务器拖入画布、同机多代理、模板、内部／外部分组、用户生命周期和客户十个覆写方案的既定体系不推翻。
+**产品叫 sing-ui；R1-C 只实现 full Agent 的入口资源与节点意图模型。** 入站通过创建表单生产，出口意图由 ProxyDraft 的 `egress` 表达并可由画布连线投影；同一入口可被多个节点复用。服务器拖入画布、单服务器场景、模板、内部／外部分组、用户生命周期和客户十个覆写方案的既定体系不推翻。
 
 冲突优先级：**NEXT → EXT → R0**；只覆盖下表明确变更，其他已确认约束继续有效。
 
 | 原章节 | 本次替代／补充 | 不变的边界 |
 | --- | --- | --- |
 | R0／EXT 文档品牌、README 标题 | 产品与未来 UI／仓库目标名统一 sing-ui；第 1 节限定迁移边界 | 本轮不重命名远端仓库、运行路径、模块或环境变量 |
-| R0 3.1 一机一个 sing-box 的绝对约定 | 一机一个受管 Agent 身份；full 管理 sing-box，lite 管理经过验证的单协议运行时 | 同一个 ServerNode，不新增第三层节点或轻量机器表 |
-| R0 4.1–4.5、5.4 表单中的出站选择器 | 创建入口默认 direct；连线产生 chain；出站摘要只读 | 同一画布创建、编辑、保存草稿、明确确认发布 |
-| R0 6–8 编译、能力和 Agent 协议 | 增加 profile-aware renderer、能力版本、轻量配置编码及受控注册 | 服务器级聚合、幂等、版本校验、匹配 ACK 后晋升 |
-| EXT 1、2.2、3、4、6–11 | 增加轻量协议／计量能力门禁、NAT 地址和分期验收 | 内外组授权、用户独立凭据、模板隔离、覆写十个名额 |
-| EXT 10.3 分期 | R1 交互确认；R2 轻量资源试验；R3 轻量闭环；DDNS 独立 R4+ | 不将 DDNS 或新运行时试验阻塞现有 full 纵切 |
+| R0 入口／节点模型 | `InboundResource` 独立持有监听配置；`ProxyDraft` 只引用 `inboundId` 并持有权威 `egress` | 不为每个节点创建重复监听；草稿与已发布快照隔离 |
+| R0 4.1–4.5、5.4 表单中的出站选择器 | 入站可新建或选择已有资源；direct／next-hop／block 由 `ProxyDraft.egress` 表达，连线只是投影 | 同一画布创建、编辑、保存草稿、明确确认发布 |
+| R0 6–8 编译、能力和 Agent 协议 | R1-C 只做 full Reality、SS2022、Hysteria2 的能力门禁与出站预览；真实聚合留 R2 | 不把 UI 意图声称为 runtime 已生效 |
+| EXT 1、2.2、3、4、6–11 | 本轮只保留授权、模板、内外组边界的兼容要求 | NAT／lite 运行时、计量与地址自动化不进入 R1-C |
+| EXT 10.3 分期 | R1-C 交互确认；R2 full 真实监听／路由验收；NAT／lite 独立后续评审 | 不将 lite、NAT 或 DDNS 绑定到 R1/R2 退出 |
 
 ## 1. 改名范围：文档现在改，部署另行执行
 
@@ -27,11 +29,13 @@
 - **兼容字面量保留**：现有命令中的 `COXPANEL_*`、旧数据库标识、历史任务书路径和当前远端 `github.com:huanxiaofu/coxpanel` 是原项目兼容标识，不机械替换成尚不能工作的命令。历史证据 ID 如 EXT 的 `[CP-G]` 继续有效，不是产品品牌。
 - **实施改名检查表**：另行批准仓库 rename → 确认旧地址兼容与 CI／镜像引用 → 更新项目 origin 和文档示例 → 验证新 clone/build → 逐项灰度运行标识。保留用户、服务器、代理稳定 ID、现有订阅 token／路径和数据卷；不可通过改品牌重建数据库。失败回退须保留兼容入口，不能承诺上游永久重定向。
 
-本次提交仍推送当前项目 `origin/main`，不提前更换远端。旧名称在兼容命令和来源路径中的出现须明确标注，不算漏改产品品牌。
+本轮不提交、不推送；旧名称在兼容命令和来源路径中的出现须明确标注，不算漏改产品品牌。
 
-## 2. Agent 分层与进程架构
+## 2. Agent 分层与进程架构（历史设计，R1-C 不验收）
 
-### 2.1 两种形态，同一个管理面
+> 本节的大量 full/lite、NAT、运行时和资源预算内容是旧稿的后续设计存档。R1-C 不实现、不验证、不依赖 lite 或 NAT；若与第 3、6、8、9 节的 R1-C 约束冲突，以 R1-C 约束为准。
+
+### 2.1 两种形态，同一个管理面（后续再议）
 
 | 维度 | full：完整 Agent，保留 | lite：超轻量 Agent，新增设计 |
 | --- | --- | --- |
@@ -90,26 +94,76 @@ R2 输出同一硬件、版本和负载下的对照记录再定运行时。任�
 
 限制并发、UDP 会话与缓存寿命、配置文档 128 KiB、单批遥测 32 KiB、本地未确认遥测 spool 1 MiB（均为待验证的默认上界，可协商取更小值）。超限显式拒绝或报告 gap，不无限堆内存；削减日志和可选指标，不削减认证／版本校验／回执。缺少可安全停止／回滚的内存余量时拒绝应用，而不是冒险启动第二份完整实例。
 
-## 3. 数据模型与能力增量
+## 3. R1-C 数据模型：入站资源与代理草稿
 
-只追加逻辑字段设计，实际迁移号在实施时检查；不改已应用迁移，不建立 `lite_servers`、`egress_nodes` 或第二套授权表。
+> R1-C 只定义 full Agent 的前端原型模型；实际持久化、渲染和运行时行为留到 R2。`InboundResource` 与 `ProxyDraft` 是两个独立对象，不能用“节点已创建”代替“监听已创建”。
 
-| 所属模型 | 拟新增字段 | 约束／权威来源 |
-| --- | --- | --- |
-| ServerNode（旧 managed nodes 投影） | `agentProfile=full/lite/unknown`、`agentProtocolVersion`、`runtimeKind/runtimeVersion` | 注册准入＋已认证握手确认；旧机器先 unknown，经匹配现有部署证据确认为 full，不能盲填 lite |
-| ServerNode | `capabilitiesRevision`、`capabilitiesObservedAt`、结构化 `capabilityDetails` | 保留旧 `capabilities[]` 兼容；未知／过期不视为支持；管理员不能手勾协议冒充 Agent 事实 |
-| capabilityDetails | `protocols[{name,methods,networks}]`、`egressModes`、`canBeChainTarget`、`deploymentModes`、`configFormats` | 面板取“上报∩适配器支持∩平台策略”；lite 首版 `egressModes=[direct]`，chainTarget 另行准入 |
-| capabilityDetails | `userAuthMode`、`trafficScope`、`supportsAuthLease`、`supportsSessionRevocation`、`limits` | 用于外部组分配和产品准入；没有遥测能力返回 unknown，不报零；limits 是校验上界而非建议 |
-| ServerNode | `networkKind=public/nat/unknown`、`memoryLimitBytes`、`resourceObservedAt` | NAT 标记可由管理员说明并保留来源；内存由 Agent 观测 cgroup／宿主限制，时间可见 |
-| ServerNode | `natPortMappings[]`：transport、publicAddress/publicPort、listenPort、状态／来源 | 管理员登记已有映射，不自动创建云 NAT／UPnP；端口属于此服务器可用映射池 |
-| ProxyNode | 复用 `advertisedAddress/Port`，补 `chainDialEndpointRef`（可空）及公开地址来源 | advertised 给客户端，chain dial 给上游；监听地址不等于两者。引用绑定目标代理＋版本，不接受任意出站 URL |
-| ProxyNode／publication | `runtimeAdapterVersion`、发布时能力 revision、公布 endpoint 快照 | 草稿／期望／已确认三态仍独立；endpoint 更新走同一版本和影响预览 |
-| Agent 发布／流量状态 | format/schema、generation/hash、ACK phase；流量 epoch/sequence、采样区间、gap | 复用已有发布表与去重逻辑，只增必要列；不可将内部代理转发量重复计入客户额度 |
-| 地址预留（R4+） | `addressMode=static/domain`、`ddnsPolicyRef=NULL`、`observedPublicAddresses`、`addressObservedAt/addressRevision` | 本阶段仅字段／接口预留；Agent 观测无权直接改管理员域名或触发 DNS 写入 |
+### 3.1 独立入站资源
 
-更换 profile 不是资产 PATCH 改一个枚举：先检查在用代理、方法、容量、计量、链路与凭据兼容，展示差异；停用／迁移不兼容代理，再在受控重新注册／配置确认后切换。能力减少使预检失效、阻止新发布并告警；既有合法服务不因一份短暂缺字段的心跳被自动删掉，亦不把未知状态显示成功。
+```text
+ProxyConfig {
+  listenPort: number
+  protocol: "vless-reality" | "shadowsocks" | "hysteria2" | ...规划协议
+  materialReady: boolean
+  shortIdReady: boolean
+  obfsReady: boolean
+  certificateRef: string
+  ...能力允许的监听／协议参数
+}
 
-## 4. Agent API：路径复用，轻量编码协商
+InboundResource {
+  id: string
+  serverId: string
+  config: ProxyConfig
+  published?: ProxyConfig
+}
+```
+
+- `id` 是入口资源稳定身份；`serverId` 决定监听归属。`config` 只保存 `listenPort`、协议和材料状态等结构化值，材料正文／私钥不进入卡片、草稿导出或本文。R1 的材料字段仅表达认证材料、Short ID、obfs 就绪状态和 `certificateRef`，没有 `materialRefs`、真实 `realityKeyRef` 或 `authRef`；R2 的受控材料存储及发布元数据另行设计。
+- `published` 直接保存最近一次确认成功的 `ProxyConfig` last-known-good 快照，不是“草稿已保存”的别名，也不附带 R1 未定义的 `revision`／`publishedAt` 包装。新建、编辑和端口迁移先改 draft config；失败时保留原 `published`，不能把失败候选晋升为已发布。
+- 同一 `serverId` 下，创建表单必须先检查既有 `InboundResource` 并支持“新建入口”或“选择已有入口”。选择已有入口只建立引用，不复制配置、不创建第二个监听。
+- 端口占用 R1 保守以 `serverId + listenPort` 为键，不区分 TCP／UDP 或监听地址；未来再细化传输与地址维度。R1 模型导出 `inboundPortConflict` 时，**占用集合必须包含当前 draft config 与所有非空 `published` 快照**。旧快照尚未成功释放前仍占用端口，不能因节点被删除或草稿失败而消失。
+
+### 3.2 独立代理草稿与权威出站意图
+
+```text
+ProxyDraft {
+  id: string
+  name: string
+  serverId: string
+  inboundId: string
+  position: ...
+  status: ...
+  published: ...
+  egress: {
+    type: "direct" | "next-hop" | "block"
+    targetInboundId?: string
+  }
+  ...其他既有草稿／画布字段
+}
+```
+
+- 本轮只规定 `ProxyDraft` 的独立 `name`、`inboundId` 和权威 `egress` 关系；`serverId`、布局、状态、发布标记等既有字段继续保留，不在此处固化完整接口。节点不拥有端口、协议或材料。多个 `ProxyDraft` 可以复用同一 `inboundId`，并分别拥有 `direct`、不同 `next-hop` 或其他未来意图。
+- `next-hop.targetInboundId` 可引用**任意服务器、任意用途**的已有 `InboundResource`，不要求目标标为 `internal`，不限制为单一上游，也不创建新的监听。目标是入口资源，不是目标 `ProxyDraft`。
+- `egress` 是唯一权威。画布连线只是把 `source.inboundId → targetInboundId` 投影回同一份 `egress`；连线复用目标入口，不读取、复制或跟随目标节点自己的 `egress`。
+- `direct` 的逻辑 tag 为 `direct`；`next-hop` 的逻辑 tag 为 `proxy_out`。这是 R1 预览语义；后端聚合在未来必须按实际 endpoint／身份生成唯一稳定命名并去重，不能为每个节点重复发出相同 tag。`block` 只作为兼容预留，运行时预览应转成现代 `reject`，不生成废弃的 `block` outbound。
+- `egress.type=block` 不接受 `targetInboundId`；`direct` 也不接受目标。`next-hop` 缺少目标、目标不存在或目标未纳入同一草稿快照时阻止确认。
+
+### 3.3 资源级校验、共享影响与隔离
+
+- 循环检查建立在入站资源图上：对每条 `ProxyDraft` 暂拟边 `source inboundId → targetInboundId` 做保守 DFS／拓扑检查；自环直接拒绝，任何会形成资源级有向环的组合都拒绝。最多 8 个去重后的入站资源；同一服务器的不同入站可以互相被选择，不沿用旧的“服务器重入”硬限制。
+- 删除 `ProxyDraft` 只删除节点及其出站意图／连线投影，**保留所引用的 `InboundResource` 及其 `published` 快照**。入口资源只有在单独确认且依赖清单为空时才可删除，不得因节点归零而级联删监听。
+- 修改一个已被复用的 `InboundResource`，表单提示引用节点总数（包括下一跳及仍生效的旧引用）；保存后全部影响节点标记草稿。工作区应用确认列出节点、服务器、端口和出站摘要；共享资源尚有未包含的引用时，禁止只应用当前节点。
+- 草稿图、资源 draft config 与已发布图／快照隔离。任何保存、校验、应用或聚合失败，都保留用户输入和原 `published` 快照，不部分晋升、不把部分成功的引用显示成已生效。
+- R1 只模拟这些出站意图和资源关系。真实同一监听如何按身份、用户或路由把不同 `ProxyDraft` 分到不同出站，仍待 R2 设计、渲染和运行验收；不能声称两个真实的无条件 route 会同时生效。
+
+### 3.4 能力边界
+
+`ServerNode` 的能力结果只负责决定哪些表单可配置、哪些选项显示为规划项；未知能力不等于支持。R1-C 仅允许 full Agent 配置 Reality、SS2022、Hysteria2。旧稿中的 profile、lite、NAT、计量和地址字段继续作为后续设计存档，不是 R1-C 或 R2 的必需模型。
+
+## 4. Agent API：路径复用，轻量编码协商（后续设计，R1-C 不验收）
+
+> 本节保留旧稿的 Agent API、lite 编码和发布一致性设计，仅作为后续输入。R1-C 不实现或验证 lite/NAT；R2 先处理 full 的真实监听、配置聚合和路由验收，不以本节内容作为阶段退出条件。
 
 ### 4.1 当前事实与拟议端点
 
@@ -139,9 +193,11 @@ R2 输出同一硬件、版本和负载下的对照记录再定运行时。任�
 5. 面板仅在有效 ACK 及 operation 成功后晋升 publication／订阅。apply 失败回滚旧确认版；恢复不了报 manual_required、隔离受影响发布，不伪报成功。
 6. 授权缩小、到期、额度耗尽仍按 EXT 先阻断订阅再确认 runtime 撤销；补偿回滚不得恢复已撤权材料。授权租约有到期上界；控制面离线时在本地停用过期授权，必要时停止入站，并实际测试已有连接终止语义。
 
-lite 初版实现上述有界 prepare/apply/ack；未达到者**不允许连成受管链路目标**，也不得复用 full 的强确认标签。full → lite 末端的联合发布仍 prepare 所有参与服务器、下游先 apply；不把末端成功直接当整个链成功。流量客户计费只在授权入口计一次，内部末端流量是运维遥测。
+上述 lite prepare/apply/ack、full → lite 联合发布和流量语义均为后续设计，**不属于 R1-C 或 R2 的验收范围**。在另行评审前不得在 UI 中把 lite/NAT 显示为本轮可配置能力，也不得以其占位字段推断真实链路已经可用。
 
-## 5. NAT 与 DDNS：管理在线不等于入口可达
+## 5. NAT 与 DDNS：管理在线不等于入口可达（历史设计，后续再议）
+
+> 本节旧稿内容仅作 NAT/DDNS 后续设计存档；R1-C 明确不处理 NAT、lite Agent、DDNS 或相关可达性验收。不得把这些字段、示例或未来接口写入 R1/R2 退出门槛。
 
 ### 5.1 NAT 首版必须说清的网络事实
 
@@ -159,142 +215,147 @@ lite 初版实现上述有界 prepare/apply/ack；未达到者**不允许连成�
 
 R4+ 独立评审路径：Agent 报 IP 变化观测 → 服务端认证、去抖与地址策略核查 → 管理员批准的 DNS 记录／provider 引用 → 最小权限更新 → 查询确认／TTL 与失败回退 → 按 endpoint 版本触发必要发布及缓存失效。共享 NAT 的出口 IP 变化不等于可入站映射改变；IPv4/IPv6 分开确认。provider 凭据将来只进受控秘密存储，不进 Agent 普通配置、浏览器草稿或文档。DDNS 不解决没有映射的问题。
 
-## 6. 核心交互：入口＝创建，出口＝连线
+## 6. R1-C 核心交互：资源复用与出站意图
 
-### 6.1 画布唯一可连接实体是入口卡
+### 6.1 画布对象和创建路径
 
-**入口在服务器上创建，是 ProxyNode 生产单元；出口不是另一种可创建资源，是该入口的流量去向。** “入口卡”包括 subscription 入口和 internal 入站；internal 不等于允许向客户公开。沿用 R0 的双用途限制，不能把用户入口静默变成共享内部目标。
+**服务器拖入画布后先选择入站资源，再创建 `ProxyDraft`；节点不是监听器。** 新建入口产生一个 `InboundResource`，选择已有入口只建立 `inboundId` 引用。一个入口可以被多个节点复用：建好 HK 的 54321 Reality 直出节点后，该入口仍可被第二个节点复用，或作为其他入口的下一跳目标。
 
 ```text
-左侧服务器资产（full／lite、NAT、能力）
-  拖服务器 → 创建入口表单 → 保存草稿／创建并应用
+左侧 full ServerNode
+  拖 HK → 新建入口或选择已有入口 → 创建 ProxyDraft
 画布
-  [A：Reality／服务器 full] ──下一跳──> [B：SS／服务器 lite／internal]
-  A 有出边：chain                         B 无出边：本机直出
+  InboundResource HK:54321 Reality
+    ├─ ProxyDraft「HK direct」       egress: direct
+    └─ ProxyDraft「HK via SG」       egress: next-hop → InboundResource SG:443 SS2022
+  ProxyDraft「另一上游 via SG」       egress: next-hop ────────┘
 ```
 
-第一版 direct 不需要第二台机器或第二个落地入口。画布没有“创建出口”按钮、OutboundNode 表、直出服务卡或可持久化的 direct 节点。可在拖线菜单提供“本机直出”**动作／临时投放区**；选择它等价于清除出边，动作完成不留下卡片／边记录。
+R1-C 允许只有一台服务器；一个入口配 `direct` 就是完整的单机闭环，不要求第二台机器或额外落地卡。创建节点不创建重复监听，也不把 direct 伪装成独立出口资源。
 
-### 6.2 一个路由真相与编辑规则
+### 6.2 `ProxyDraft` 出站意图和连线投影
 
-| 操作／状态 | 草稿语义 | 应用与校验 |
+| 操作 | 草稿语义 | 应用与校验 |
 | --- | --- | --- |
-| 创建入口 A，尚无连线 | `egress_mode=direct`，无目标，无出边；卡内显示本机直出 | 创建表单不要求选择出口；单机确认即可发布 |
-| 从 A 拖线到入口 B | 一个规范边 A→B；投影 `egress_mode=chain,targetProxyNodeId=B` | B 必须 internal、能力／地址就绪；改草稿不立即改 runtime |
-| 从 A 改接 C | 原子替换 A 的出边，版本冲突返回 409 | 不产生两个下一跳；确认受影响服务器后发布 |
-| 删除 A→B 或选择本机直出 | 同事务清边／目标并投影 direct | **显式警告流量改为本机出网**；不自动应用；已运行链路保持至确认成功 |
-| B 离线／失败／被停用 | 连线仍在，标不可用或阻止新发布 | 不自动删边回落 direct，避免流量绕过既定出口 |
-| 隐藏卡片／收起服务器分组 | 仅布局；隐藏相关连线可用摘要指示 | 不改 egress、不拆链、不触发配置发布 |
-| 删除目标 B | 返回依赖清单；必须先明确重连／停用上游并确认发布 | 禁止级联删边造成隐式直出；历史引用保留 |
-| 键盘／小屏连接 | 选源卡“连接到…”再选目标，与拖线提交同一 Connect 命令 | 是连线的无障碍替代，不回到创建表单另存出站对象 |
+| 新建入口并创建节点 | `ProxyDraft.inboundId = 新资源 id`，默认 `egress.type=direct` | 单服务器即可保存；不要求选择出口，不创建第二个监听 |
+| 选择服务器已有入口 | `ProxyDraft.inboundId = 已有资源 id` | 只增加引用；不复制端口、协议、材料或 `published` 快照 |
+| 节点 A 连接入口 B | `A.egress={type:"next-hop",targetInboundId:B.id}`；边是该字段投影 | B 可属于任意服务器、任意用途；目标是入口资源，不读取 B 节点的出站 |
+| 多个节点连接同一入口 B | 多个 `ProxyDraft` 保存相同 `targetInboundId` | 共享一个监听；每个源节点仍可有不同出站意图 |
+| A 改接 C | 原子替换 `targetInboundId`，不新增监听 | 预览全部影响范围后保存；不得同时保留两个下一跳 |
+| 删除连线／选择本机直出 | 清除目标并设 `egress.type=direct` | 显式提示流量意图变为本机出网；未确认前不改已发布快照 |
+| 目标离线或能力不足 | 目标选择禁用或标记不可用，保留用户草稿 | 不自动回落 direct；失败保留旧 `published` 快照并可重试 |
+| 删除 `ProxyDraft` | 只删除节点、意图和连线投影 | 保留 `InboundResource`、其余引用和 `published` 快照 |
+| 删除入口资源（R2 设计） | R1 不提供入口资源删除操作；移除节点仍可重新选择已有资源 | 未来依赖清单清空并单独确认后才可删；禁止级联删入口 |
+| 编辑共享入口资源 | 修改 draft config，列出所有引用节点及发布项 | 所有引用标记 dirty；一次确认覆盖完整影响范围 |
+| 键盘／小屏连接 | 选源卡“连接到…”再选目标，提交同一 Connect 命令 | 是拖线的无障碍替代，不另存出站对象 |
 
-**边是唯一出站目标权威**，egress 是同一 graph revision 的派生投影／兼容字段；不在表单 payload 留第二份可冲突的 target。历史 API 同时提交 egress 与 edge 不一致时明确拒绝，不任选一个覆盖。`direct` 与零出边一一对应，`chain` 与恰好一条合法出边一一对应。
+**`egress` 是唯一出站目标权威**，边只是同一 graph revision 的可视投影；不在 payload 留第二份可冲突的 target。`direct` 与零目标一一对应，`next-hop` 与恰好一个 `targetInboundId` 一一对应，`block` 不允许目标。
 
-保留原图约束：无自环／有向环、同一链不重入服务器、最多 8 个入站、一个入口最多一个下一跳、既有 relay 复用限制不放开。同服务器两个入口可独立创建，但本轮不允许它们互连绕过服务器重入校验。lite 源端拖线按钮禁用并解释 direct-only；服务端也拒绝伪造请求。full → lite/internal/direct 仅在第 4.2 节联合发布、协议拨号及可达性验收后开放；lite → full 和 lite → lite 首版不支持。
+校验建立在**入站资源图**而不是服务器图：拒绝自环和任何资源级有向环，最多 8 个去重后的入站资源；同一服务器的不同入站可以相互选择，不沿用旧的服务器重入硬限制，也不要求目标标记为 `internal` 或只有一个上游。R1-C 只模拟意图；真实同一监听如何按身份／用户／路由区分不同出站，留待 R2 设计、聚合和运行验收，不能声称两个真实无条件 route 会同时生效。
 
-### 6.3 创建与连线两条主路径
+### 6.3 入站表单、能力门禁和端口占用
 
-1. **单机直出**：拖 full 的 HK-zouter → 3x-ui 式 Reality 入口表单 → 协议／端口／SNI／密钥校验 → 摘要“尚未连线，本机直出” → 创建并应用 → 等匹配 ACK → 入口卡已生效。不要求访问另一页面或创建落地。
-2. **NAT 单机 SS**：拖 lite 服务器 → 只列已通过的 SS 方法 → 选可映射端口、检查公布地址 → 创建并应用。UDP 不满足时只允许 TCP 并明确标记，不能先生成不可用订阅。
-3. **两入口链式**：创建 A 和 B 的入口草稿，B 用 internal → 在画布连 A→B → 汇总两台完整配置和授权影响 → “应用 2 项变更”。临时 clientRef 在同一操作解析成稳定 ID，不强迫先把 A 直出发布到生产才能连线。
-4. **既有卡改链**：双击编辑只改入口；源卡连接把手／菜单改关系 → 差异预览 → 明确应用。取消表单或撤销未应用连线不改变既有运行配置；布局 undo 不等于运行回滚。
+参考本地 `frontend/components/inbound/*.tsx` 的基础监听、协议字段、TLS／安全和高级字段组织，以及提交 loading、错误定位和协议快捷切换。12 个规划协议目录为 WireGuard、Mixed、VLESS、VMess、Trojan、Shadowsocks、Hysteria2、TUIC、Naive、ShadowTLS、AnyTLS、HTTP；R1-C 只让 full Agent 的 Reality（VLESS+Reality）、SS2022、Hysteria2 可配置，其余按能力显示 disabled／规划原因，不冒充已支持。
 
-### 6.4 3x-ui 式分区表单与具体吸收
-
-参考本地 `InboundFormModal.tsx` 的基础／协议／传输／安全／高级分区、提交 loading、错误切换页签和 Modal 组织；sing-ui 画布用 Drawer、列表用 Modal，共享同一个入口表单。**原项目用协议 Select＋分区 Tabs，不误写成每个协议已经有顶层 tab；sing-ui 的协议快捷 tabs 是在其范式上新增的产品设计。**
-
-| 组件／分区 | 第一版字段与动作 | 能力／安全／对齐 |
+| 组件／分区 | R1-C 字段与动作 | 门禁／失败语义 |
 | --- | --- | --- |
-| `InboundProtocolTabs` | Reality／Shadowsocks／Hysteria2 快捷选择；内部表单为基础、协议、安全、高级 | 按 ServerNode 能力显示可用项；未知／不支持给原因；切协议确认清理不兼容字段，不迁移秘密 |
-| `ProxyBasicFields` | 服务器只读、入口名、用途、监听端口；NAT 显示映射公网端口 | 已发布入口不能直接换机器／协议；复制先新 ID、新端口、新材料，不隐式迁移 |
-| `PortAvailabilityField` | 端口范围、同机冲突定位、可选空闲端口、NAT TCP/UDP 映射提示 | 面板事务预检＋Agent bind 检查；不照抄随机端口就当可用；冲突在字段和页签显示 |
-| `RealityInboundFields` | SNI、dest／握手目标 host:port；生成 X25519、Short ID；公钥复制 | 对齐 sing-box 的 sni/target；“将 SNI 填为目标 host”“从目标提取 SNI”是显式快捷动作，保留独立编辑，不自动扫描公网候选 |
-| `ShadowsocksInboundFields` | method、生成适当长度密码、网络、用户认证模式／容量提示 | full 维持 SS2022；lite 只显示已验证交集；不要求 SNI／证书；独立用户秘密继续由授权流程管理 |
-| `TLSCertificateFields` | 证书引用／有效期／域名覆盖提示；生成或导入入口按能力展示 | 首版沿用已登记 certificateRef；“生成自签测试证书”仅后续受控能力，明确不受客户端默认信任；ACME／自动签发未实现不显示可用按钮 |
-| `AdvancedProxyFields` | 监听地址、advertisedAddress/Port、NAT 提示、受控链路地址引用 | 域名可手填，DDNS 显示后续而非已启用；不得提交任意文件路径／核心 JSON |
-| `SecretGenerateButton` | 生成／轮换、加载、失败重试；取消不毁旧材料 | 临时 secretRef 绑定服务器／操作者／用途，过期可清理；私钥不进卡片、GET、localStorage、日志 |
-| `EgressSummary`（替代 EgressEditor） | 只读本机直出／下一跳＋“在画布连接”定位动作 | **没有 direct/chain 编辑器或目标选择字段**；键盘连接仍由画布命令统一维护边 |
-| `DeploymentSummary` | 能力、端口、地址、待应用差异、影响范围、逐机进度 | 隐藏页签错误自动定位，失败保留输入；202 只显示已受理，不等于已生效／公网可连接 |
+| `InboundResourcePicker` | 新建入口或选择当前服务器已有入口；显示端口、协议和引用计数 | 选择已有只建立 `inboundId`，不复制配置或创建监听 |
+| `ProxyBasicFields` | 服务器只读、入口名称、用途、监听端口；节点名称单独属于 `ProxyDraft` | 入口和节点分开保存；单机可完成闭环 |
+| `RealityInboundFields` | SNI、dest／目标 host:port、材料就绪状态、`certificateRef`（如适用）、ShortID、指纹、uTLS；“从 dest 提取 SNI” | 快捷动作只做本地字符串解析；不把 key/auth 秘密建模为字段；材料失败保留输入和旧快照 |
+| `ShadowsocksInboundFields` | SS2022 method 下拉、密码生成、网络／用户认证摘要 | 仅显示 full 能力交集，例如 `2022-blake3-aes-128-gcm`；失效 method 阻止应用并保留表单 |
+| `Hysteria2InboundFields` | UDP 监听端口、SNI、证书引用、obfs、上／下行带宽 | 缺证书或 UDP 能力时阻止应用并给原因 |
+| `TLSCertificateFields` | `certificateRef` 与合成证书名称／域名提示；R1 不生成或导入证书 | 不展示私钥正文；缺少或清空证书引用阻止应用，不导致页面异常 |
+| `PortAvailabilityField` | 同机端口检查、冲突资源／快照列表和端口自动同步提示 | R1 按 `serverId + listenPort` 保守冲突，不区分 TCP／UDP／监听地址；`inboundPortConflict` 占用集合包含当前 draft 与所有非空 `published`；阻止新资源，不因删节点释放端口 |
+| `AdvancedProxyFields` | 监听地址、公布 endpoint／用途和受控材料引用 | 不提交任意文件路径或核心 JSON；NAT/DDNS 不在本轮 |
 
-吸收“生成密钥／证书”的操作分区，不照搬参考工程的 Xray schema、明文私钥展示、任意目标扫描或证书路径。SNI/dest 快捷填写不发网络请求，不将 example.invalid 当推荐目标；若以后加入握手探测／签发，单独批准权限、出网与秘密处理设计。
+编辑共享资源时，表单先提示引用计数，工作区确认覆盖全部影响节点的名称、服务器、端口和出站；真实 publication 差异预览由 R2 实现。草稿、资源 draft config 与模拟发布快照隔离；模拟失败保留用户输入和原 `published`，提供重试，不部分晋升。
 
-## 7. 前端与 EXT 产品体系的影响
+### 6.4 出站视图、路由和 DNS 预览
 
-- **服务器资产／详情**：full／lite、NAT、内存容量与观测时间、支持方法／TCP/UDP、可创建入口数、认证／计量等级。安装说明分 Docker 与原生两档，但本轮只规划，不写可执行远程安装脚本。
-- **代理卡**：卡标题始终是入口名，副标题是服务器；协议、公布 endpoint、只读出口摘要和 ACK 状态。lite direct-only 源把手不可用；可接入目标把手是否可用另按门禁判断，不能“lite 都能连”或“lite 永远不能作为末端”一刀切。
-- **内外分组**：内部资源组可纳入任意 profile；外部组只能选可订阅且发布／用户隔离／计量／租约合格的代理。full/lite 标签不能变成自动授权规则；新代理不继承整机公开权限。
-- **用户与流量**：保留 EXT 到期、额度、重置周期、延迟报告、撤权流程。轻量断网／缓冲满显示 stale/gap；旧流量不会因重连或重置重复收费。链路末端内部计数不作为第二份用户消费。
-- **模板／客户覆写**：模板不是 Agent 配置；客户无法选运行时、启用 DDNS、改拓扑／私钥或向未授权入口连线。稳定代理 ID、十个保存名额、基础与自定义链接和实时授权约束全保留。
-- **原型验收**：浅深色、小屏、键盘“连接到…”路径、错误页签定位、NAT 映射不足、能力未知／过期、负载上限、未保存离开和焦点返回都要演示；不能以 lint/build 通过替代交互认可。
+参考本地 `frontend/components/outbound/*.tsx` 的 direct、block、订阅节点和协议出站表单，以及 `route/routing-config.tsx`、`dns/dns-config.tsx` 的字段与合成方式。R1-C 将出站配置呈现为节点级意图和预览，不把每个 `ProxyDraft` 渲染成真实监听。
+
+- `direct` 显示本机直出，逻辑 tag 为 `direct`；`next-hop` 显示目标 `InboundResource` 推导出的服务端地址、端口和协议，逻辑 tag 为 `proxy_out`。目标入口的 draft／published endpoint 变化进入影响范围。
+- `next-hop` 只复用目标入口，不跟随或复制目标节点的 `egress`；多个源节点可以共享同一入口。后端未来聚合必须按实际 endpoint／身份生成唯一稳定命名并去重，不能为每个节点重复生成相同 `proxy_out` tag。
+- `block` 仅预留兼容意图；预览使用现代 `reject` action，不生成废弃的 `block` outbound，也不接受 `targetInboundId`。
+- 出站策略可配置 `domainStrategy`、`bindInterface`、sniff、DNS `udp`／`tcp`／`https`／`tls`／`hosts` 五类和 `rule_set` 合成引用；`rule_set` 只记录引用，不下载数据。
+- 路由预览展示 `route`、`sniff`、`hijack-dns`、`reject`、`resolve` action 及其 outbound／resolver 目标；预览不是 runtime 已按规则分流的证据。
+- **R1 仅模拟意图。** 同一真实监听若要让不同身份／用户／路由得到不同出站，R2 必须先验收身份匹配、路由生成、tag 聚合和实际客户端路径；不能把两个无条件 route 同时生效写成当前能力。
+
+吸收本地参考工程的分区和生成动作，不照搬 Xray schema、明文私钥展示、任意目标扫描或证书路径；SNI/dest 快捷填写不发网络请求。
+
+## 7. 前端与用户产品体系的影响
+
+- **服务器资产／详情**：R1-C 画布只接入 full ServerNode，并展示能力状态、可用协议、已有入站资源和发布状态。NAT、lite、运行时容量与地址观测仍是后续设计存档，不在本轮资产门禁或 R1/R2 退出条件中。
+- **入站资源／代理卡**：节点卡显示节点名、入口资源名、服务器、协议／端口、出站意图、引用计数和草稿／已发布状态；材料就绪状态只在表单中显示。移除未发布节点不删除资源；共享资源编辑提示节点及下一跳引用计数，工作区确认完整影响范围。
+- **画布与权限**：新节点可新建入口或选择所属服务器已有入口；`next-hop` 则可引用任意服务器已有入口，目标是入口资源而非目标节点。不能借连线绕过授权、发布或可订阅条件。内外分组、稳定代理 ID、模板隔离和客户十个覆写名额沿用 EXT，不因资源复用扩大公开权限。
+- **用户与订阅**：只有明确确认并成功发布的节点进入用户可见订阅；草稿、失败候选和旧 `published` 快照隔离。保留 EXT 到期、额度、重置、撤权和延迟报告语义；R1 不把模拟的 `proxy_out` 或资源复用计作真实客户端流量链路。
+- **原型验收**：浅深色、375px 手机、桌面布局、八个导航项、键盘“连接到…”、错误定位、离线禁用、未保存离开和焦点返回都要演示；DOM 断言与截图证据分别记录，不能以 build／lint 代替用户交互验收。
 
 ## 8. 分期、依赖与回退
 
 | 阶段 | 本次增量 | 退出门槛 |
 | --- | --- | --- |
-| R0-NEXT：本轮方案 | 品牌与三项新决定；修订 R0／EXT；本地报告 | 文档范围完整、无应用源码改动；不是功能已交付 |
-| R1：交互评审 | sing-ui 品牌原型、full/lite/NAT 资产、入口表单、连线定义出口 | 用户完成单机直出、两卡链式和键盘替代操作；没有创建出口页 |
-| R2：full 真实纵切＋lite 独立试验 | 原 Reality／ACK 隔离继续；轻量候选资源／方法／授权对照 | 确定运行时、最低真实内存和不支持项；不为了等 DDNS 延迟 full 纵切 |
-| R3：轻量闭环＋原协议／授权 | 同 ServerNode 注册、能力门禁、SS direct、原生部署、流量／租约；合格 full→lite 末端 | 与 EXT 内外组／基础订阅纵切一起验证；不合格运行时保持实验禁售 |
-| R4：EXT 完整客户／用户体系 | 模板导入、手动覆写、十个方案、生命周期／重置继续 | 保留 EXT 原退出标准；DDNS 不自动成为本阶段必交项 |
-| R4+：单独批准 DDNS | 地址观测、provider 策略、更新／确认／回退 | 独立设计和真实 DNS 验收后才开放，不混入 SS 首版 |
-| R5：兼容迁移与全站收口 | profile 回填、旧接口门禁、客户端矩阵、文档／品牌迁移检查 | 旧 ID／链接／授权／计量不丢，旧入口无越权旁路；运行重命名单独窗口执行 |
+| R0-NEXT：方案基线 | 品牌与本轮模型决定；保留用户／模板／授权边界 | 设计范围可追溯；不把文档当作功能已交付 |
+| R1-C：前端原型＋交互确认 | full 服务器画布、`InboundResource` 复用、`ProxyDraft.egress`、Reality／SS2022／Hysteria2 表单、出站／路由／DNS 预览 | 用户完成单机 direct、共享入口、任意下一跳、端口／环／能力门禁和失败重试；只证明模拟意图，不触后端真实 API |
+| R2：full 真实纵切 | 持久化资源与草稿／发布隔离、配置聚合、唯一 `proxy_out` 命名、发布 ACK／回滚、身份／用户／路由分流 | 先设计并验收同一真实监听区分不同出站的匹配与路由；真实客户端路径、端口释放和旧快照回退均有证据；不得以两个无条件 route 代替该验收 |
+| R3：协议能力扩展 | R1 规划协议按 Agent 能力逐项解锁，补齐用户订阅、内外组和授权接入 | 每个协议有能力交集、材料保护、客户端矩阵和回退证据；未验收项保持规划态 |
+| R4：EXT 用户体系收口 | 模板导入、手动覆写、十个方案、生命周期／重置、撤权与计量继续 | 保留 EXT 原退出标准；资源复用不扩大用户权限、不重复计量 |
+| R5：兼容迁移与全站收口 | 旧入口／稳定 ID／订阅链接兼容、客户端矩阵、文档与品牌迁移检查 | 旧数据与授权不丢，旧入口无越权旁路；运行时重命名单独窗口执行 |
 
-增量实施顺序：能力／profile 可读兼容 → 新 renderer/configFormat 与候选隔离 → 注册和 lite 原生运行试验 → 发布／授权 ACK → 前端能力门禁 → 客户产品准入；从未实现新字段的旧 Agent 不自动推断支持。新能力下线先冻结新写入并处理在途发布，再回到理解 publication／授权边界的兼容版本；不能将旧 full 二进制直接用于 lite 配置，也不能把轻量服务无提示迁回更重运行时。
+R1-C → R2 的顺序是：先稳定资源／节点模型和前端能力门禁，再实现 full 聚合与真实发布，最后验收身份／用户／路由分流。NAT、lite Agent、DDNS 和相关内存／可达性试验不绑定 R1 或 R2，须另行提出范围、模型和验收门槛；旧章节中的相关内容只作历史设计存档。
 
-资源评估、原生发布、方法适配和 NAT 可达性是新增工作包；原 R0 的 29–44 人日及 EXT 估算边界不包含这些任务。R2 后按实测和确定运行时重新估算，不编造本轮总工期或稳定吞吐保证。
+回退规则贯穿两阶段：保存、校验、应用或聚合失败均保留用户草稿与旧 `published` 快照；重试成功前不部分晋升、不把失败候选显示为已生效。新能力下线先冻结新写入并处理在途发布，再回到兼容版本；不凭未知能力推断支持。
 
-## 9. 验收清单：方案覆盖与未来运行证据分开
+## 9. 验收清单：原型证据与未来运行证据分开
 
 ### 9.1 本轮文档验收
 
 - [x] sing-ui 产品命名、README／方案入口一致，旧运行兼容字面量有说明。
-- [x] 完整 Agent 保留；轻量架构、内存目标、协议方法、数据、API、前端、授权与 DDNS 预留齐全。
-- [x] 入口＝创建、出口＝连线；direct 不建第二卡；egress 与边唯一权威一致。
-- [x] EXT 模板、内外组、用户、客户十个覆写方案不被新形态绕过。
-- [x] 所有功能／真实小内存及 NAT 验收列为待实施，不以文档测试假称运行通过。
+- [x] `InboundResource`／`ProxyDraft` 独立、共享入口、资源级环检、`published` 快照和 `inboundPortConflict` 规则已写明。
+- [x] `egress` 为唯一权威；边只投影；direct／next-hop／block 的 tag、预览 action 和 R1 模拟边界已写明。
+- [x] 十二协议目录中 full Reality、SS2022、Hysteria2 可配置；其余九种显示能力规划门禁，不冒充已支持。
+- [x] EXT 模板、内外组、用户、客户覆写、授权和订阅边界不被资源复用绕过。
+- [ ] R1-C 浏览器 UI 验收待独立 loopback 实测；本清单不把文档、DOM 或截图预先记为通过。
 
-“未改源码”、检查结果与 commit/push 以最终 diff 和报告证据为准，不在写作中预先宣告通过。
+检查结果与 commit/push 以最终 diff 和阶段报告证据为准；本轮修改前端原型，不修改后端源码。
 
-### 9.2 实施后必须执行，当前均待验证
+### 9.2 R1-C 浏览器验收（当前待验证）
 
-| 编号 | 实机场景／操作 | 验收证据 |
+| 编号 | 用户操作／场景 | 证据要求 |
 | --- | --- | --- |
-| L1 原生形态 | 64 MiB NAT 实机无 Docker 安装、重启恢复、只开 SS | 完整进程树／版本、无容器依赖、ServerNode 同管理面注册；不使用生产机器 |
-| L2 资源 | 按 2.4 节双候选同负载对照，24h、100 次应用／回滚、控制面断连再恢复 | RSS/PSS、整机／cgroup 峰值、吞吐／时延、无 OOM／持续增长；32 MiB 未达则不得标通过 |
-| L3 能力门禁 | lite 请求 Reality/Hy2、未支持 method/UDP、超入站／用户数、伪造 chain | UI 原因明确，API schema／能力拒绝；旧 full 路径无回归 |
-| L4 NAT 可达 | TCP 映射正确／错误、仅 TCP 无 UDP、无映射、仅私网末端 | 从授权隔离客户端／上游实际拨号；管理在线不冒充可连接；无路可达阻止发布 |
-| L5 发布恢复 | prepare／apply 失败、断电、旧 ACK、重复请求、回滚失败、容量不足 | 旧版本保留，匹配 ACK 才晋升；manual_required 不标成功；订阅无失败草稿 |
-| L6 用户边界 | 两客户不同授权、到期／禁用／超额、断网超过租约、旧连接持续 | 未授权认证失败，本地失效及连接终止窗口实测；不共享密码模拟隔离 |
-| L7 计量 | 重发批次、Agent 重启、spool 满、跨额度周期迟到、入口＋末端同时上报 | epoch/sequence 幂等、gap 可见、历史按采样修正、只计授权入口一次 |
-| U1 单机直出 | 拖 full 建 Reality；拖 lite 建合格 SS | 创建表单不选出口，只有入口卡；无边＝direct；ACK 前不向客户发布 |
-| U2 画布关系 | A→B、改接、删线、B 离线、隐藏卡、删除 B、撤销未应用连接 | 无双目标／环／同机重入；删线直出有确认；离线不隐式 direct；布局不改运行 |
-| U3 混合链路 | full A→合格 lite B/internal/direct；伪造 lite 作 relay | 下游先 apply、匹配全链 ACK；末端能力不足拒绝；客户端实际验证出网路径 |
-| U4 表单与辅助输入 | 协议切换、密钥失败、证书缺失、SNI/dest 快捷、端口冲突、键盘／手机 | 分区定位、输入保留、能力解释、无秘密外泄；出口由同一 Connect 命令维护 |
-| B1 完整产品回归 | 内外组、基础／客户订阅、四格式矩阵、十个名额、撤权和模板撤回 | EXT 全部原门槛继续；lite 不扩大授权、不多发无效格式／用户秘密 |
-| D1 后置边界 | 检查 lite 首版无 DDNS worker/provider 写请求 | 只手工域名／字段预留；R4+ 独立批准和 DNS 实测前不显示 DDNS 已可用 |
+| U1 | 拖 HK，创建 Reality `54321`，填写合成材料就绪状态与 ShortID，应用后显示单机 active；原节点默认 `direct` | 用户流程、保存后的 DOM 状态和截图；不泄露秘密 |
+| U2 | 再拖 HK，选择已有 `54321` 入口保存第二节点；创建 SG 的订阅用途 SS 并作为第二个 HK 节点的 next-hop；原 HK direct 不变；多个节点复用 SG | 入口引用计数、各节点 `egress` 摘要和画布投影；截图不能代替模型语义 |
+| U3 | 新建资源使用已占用 `54321`，并分别尝试 self-loop 与资源级环 | `inboundPortConflict` 显示当前 draft＋非空 `published` 占用；自环／环拒绝；同机不同入口可引用 |
+| U4 | 编辑共享入口，确认完整影响范围；删除节点；制造失败并重试 | 引用节点／下一跳依赖计数、全部引用 dirty；资源及旧快照保留；失败后用户输入和旧 `published` 保留，重试可继续 |
+| U5 | 保存并重开 direct 高级 `domainStrategy`、`bindInterface`、sniff、DNS 五类型和 `rule_set` 引用；检查 route 预览 action | `route`／`sniff`／`hijack-dns`／`reject`／`resolve` 仅为预览；`rule_set` 不下载 |
+| U6 | 配置 Hy2 UDP、证书、obfs、上／下行带宽；查看十二协议目录中其余九种规划门禁 | 表单字段、材料就绪和能力原因真实显示；规划项不可伪装为可发布协议 |
+| U7 | 离线时尝试编辑／保存；检查 375px、桌面浅／深色和八导航布局 | 操作禁用或给出原因；截图证明布局；`pageerror` 为 0，DOM 与视觉结论分开 |
 
-所有运行试验只在另行授权的隔离资源上使用合成用户／凭据；报告不包含私钥、真实订阅、UUID/password 或完整可连接配置。本轮不启动这些实机／客户端／数据库验收。
+### 9.3 R2 运行验收（不提前在 R1 通过）
+
+| 编号 | 必须真实验收 | 证据 |
+| --- | --- | --- |
+| R2-1 | 同一监听按身份／用户／路由把不同 `ProxyDraft` 分到不同出站 | 配置聚合、唯一稳定 tag、实际客户端路径和规则匹配；不能用两个无条件 route 同时生效替代 |
+| R2-2 | full Agent 真实发布、ACK、回滚、端口释放和旧快照恢复 | 成功／失败／重试的版本状态与运行配置一致；失败不部分晋升 |
+| R2-3 | 用户授权、订阅、撤权、计量和模板边界 | EXT 原有门槛继续；资源复用不扩大权限或重复计量 |
+
+所有验证只可在隔离 loopback／合成数据上执行；报告不包含私钥、真实订阅、UUID、password 或完整可连接配置。NAT、lite、DDNS 和历史 lite 资源预算另行评审，不是 R1/R2 验收。
 
 ## 10. 来源、证据与本轮限制
 
 | 标识 | 本次读取依据 | 使用边界 |
 | --- | --- | --- |
-| TASK | 项目外只读任务书，原兼容文件名见下方代码块 | 用户三项产品决定与交付要求；只在 panel-design 写文件 |
+| TASK | `/opt/data/workspace/tmp/sing-ui-r1c-task.md`（项目外只读） | 用户本轮产品决定与交付要求；只在 panel-design 写文件 |
 | R0／EXT | `docs/REARCHITECT.md`、`docs/REARCHITECT-EXT.md`，原稿全文各 512 行 | 保留原确认体系，本稿明确替代点；历史验证不是本轮结果 |
-| LOCAL-AGENT | `agent/Dockerfile:1`、`agent/cmd/agent/main.go:821`、`shared/contract/messages.go:18`、`backend/internal/api/router.go:70` | 当前容器／sing-box、心跳能力和四个真实 Agent 路径；profile/注册/轻量 schema 是新增设计 |
-| LOCAL-SS | `shared/config/renderer.go:583`、`shared/config/renderer.go:729` | 当前 SS2022 方法和用户凭据适配边界，不推断其他 SS 实现也满足 |
-| UX-FORM | 本地 3x-ui `frontend/src/pages/inbounds/form/InboundFormModal.tsx:551`、`:595`、`:635`、`:1086` | 保存、校验跳页签、协议 Select 和分区 Modal；没有运行参考 UI |
-| UX-SECURITY | 3x-ui `frontend/src/pages/inbounds/form/security/reality.tsx:102`、`:171`、`:209`、`:249`，`useSecurityActions.ts:29` | 目标／SNI／Short ID／生成动作；不复制原实现和品牌资产 |
-| UP-SB | sing-box 官方 build-from-source 文档 | 可选构建特性，不提供本文内存门槛的通过证据 |
-| UP-SS | shadowsocks-rust 官方 README 的 ssserver／构建特性章节 | 候选实现资料；不称已完成版本锁定、多用户验收或内存实测 |
+| LOCAL-UI | `/opt/data/workspace/tmp/ref-singbox-ui/frontend/components/inbound/*.tsx`、`outbound/*.tsx`、`route/routing-config.tsx`、`dns/dns-config.tsx`、`CLAUDE.md` | 只借鉴本地字段分区、协议表单、路由／DNS 合成和交互组织；不把参考 UI 当作本项目已实现 |
+| LOCAL-AGENT | `/opt/data/workspace/tmp/ref-singbox-ui/server/handlers/singbox.go`、`server/services/singbox.go`（仅相关代码） | 只核对本地 handler／service 的协议与配置事实；不读取凭据文件，不据此声称 R1 已有后端聚合 |
+| LOCAL-PROJECT | `frontend/src/prototype/` 当前原型与 `frontend/package.json` | 只用于本轮前端原型／脚本边界；不把 build／lint 当作用户验收 |
 
-为可追溯保留原始定位（旧文件名／仓库标识不是新品牌）：
+为可追溯保留任务书和本地参考定位：
 
 ```text
-任务书：/opt/data/workspace/tmp/coxpanel-rearchitect-next-task.md
-3x-ui：/opt/data/workspace/tmp/ref-3xui/
-UP-SB：https://sing-box.sagernet.org/installation/build-from-source/
-UP-SS：https://raw.githubusercontent.com/shadowsocks/shadowsocks-rust/master/README.md
+任务书：/opt/data/workspace/tmp/sing-ui-r1c-task.md
+singbox_ui 参考：/opt/data/workspace/tmp/ref-singbox-ui/
 ```
 
-外部资料于 2026-09-08 只读核对；web 检索调用未返回可引用正文，改以公开 HTTPS 获取官方构建／README 相关段落。没有据此声称候选是最新版本或引用任何第三方内存数字；未来 R2 要锁定版本与摘要。本轮不重新认证 EXT 的旧外部资料，也未读取凭证、连接数据库、运行参考项目或接触生产。实际测试／构建限制、文档提交和推送状态记录在本轮报告。
+本轮不使用外链作最新性断言，也不读取凭据、连接数据库、运行参考项目或接触生产。设计文档修改限本文件，阶段记录更新在项目 `tmp/`；浏览器验收的实际命令、端口、exit code、DOM／截图和 `pageerror` 结果以阶段报告为准，不预先宣称通过。

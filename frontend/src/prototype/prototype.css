@@ -256,7 +256,6 @@
 .su-proxy-config-section { padding: 4px 0 12px; }
 .su-proxy-config-form, .su-proxy-config-tabs { min-width: 0; }
 .su-proxy-config-footer .ant-btn { font-size: 12px; }
-.su-proxy-config-nat-mapping-list { display: flex; margin-block: 10px; }
 .su-proxy-config-blocker-list .ant-typography { font-size: 11px; }
 @media (min-width: 1600px) { .su-main { padding-inline: 32px; } .su-workspace { grid-template-columns: 268px minmax(0, 1fr); } .su-assets { padding-inline: 18px; } }
 @media (min-width: 1200px) {
@@ -278,3 +277,13 @@
   [data-sing-ui='prototype'] .ant-drawer-content-wrapper { max-width: 100vw; }
 }
 @media (prefers-reduced-motion: reduce) { [data-sing-ui='prototype'] *, [data-sing-ui='prototype'] *::before, [data-sing-ui='prototype'] *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+.su-reference-count { display: block; padding: 10px 16px; border-top: 1px solid var(--su-line); color: var(--su-muted); font-size: 11px; }
+.su-inbound-name { margin: 5px 16px; font-size: 11px; overflow-wrap: anywhere; }
+.su-card-egress, .su-published-egress { display: flex; gap: 7px; padding: 8px 16px; font-size: 11px; overflow-wrap: anywhere; }
+.su-egress-preview { padding: 12px; margin-bottom: 14px; border: 1px solid var(--su-line); border-radius: 8px; overflow-wrap: anywhere; }
+.su-placeholder-bottom { flex-wrap: wrap; gap: 8px; }
+.su-proxy-badges { flex-wrap: wrap; }
+.su-proxy-status-row, .su-proxy-card-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-block: 8px; }
+.su-proxy-status-row > small, .su-published-egress { color: var(--su-muted); }
+.su-proxy-card-actions { border-top: 1px solid var(--su-line); }
+.su-canvas-label { flex-wrap: wrap; right: 12px; }

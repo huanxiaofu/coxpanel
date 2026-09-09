@@ -2,7 +2,7 @@ import { Alert, Button, Empty, Tag } from 'antd';
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import AppShell, { navigation, PageHeader } from './AppShell';
 import { Icon } from './Icon';
-import { getServer, protocolLabels, serverAssets, statusLabels } from './model';
+import { egressSummary, getInbound, getServer, inboundReferences, protocolLabels, serverAssets, statusLabels } from './model';
 import { ThemeProvider } from './ThemeProvider';
 import TopologyWorkspace from './TopologyWorkspace';
 import { WorkspaceProvider, useWorkspace } from './WorkspaceProvider';
@@ -13,27 +13,30 @@ function Overview() {
   return <div className="su-standard-page"><PageHeader title="总览" description="从服务器资源到代理服务，一处掌握工作区。" actions={<Link to="/prototype/topology"><Button type="primary" icon={<Icon name="topology" />}>进入拓扑编排</Button></Link>} />
     <Alert type="info" showIcon title="R1 合成工作区 · 以下统计仅来自本次原型会话，不是生产指标。" />
     <div className="su-stats-grid">{[
-      ['服务器资源', serverAssets.length, '3 台在线 · 1 台离线（模拟）'],
-      ['代理入口', state.proxies.filter(proxy => proxy.config).length, '同一服务器，多种独立服务'],
+      ['服务器资源', serverAssets.length, '2 台在线 · 1 台离线（模拟）'],
+      ['独立入口资源', state.inbounds.length, '同一端口可被多个节点引用'],
       ['已生效 · 模拟', state.proxies.filter(proxy => proxy.published).length, '不代表真实部署回执'],
       ['待应用草稿', state.proxies.filter(proxy => proxy.dirty).length, '不会进入真实订阅'],
     ].map(([label, value, detail]) => <section className="su-stat-card" key={label}><span>{label}</span><strong>{value}</strong><small>{detail}</small></section>)}</div>
-    <section className="su-welcome-card"><span className="su-section-eyebrow">YOUR FIRST WORKSPACE</span><h2>一台服务器，就是起点。</h2><p>从 HK-zouter 创建一个 Reality 入口，不连线即本机直出。<br />需要链式转发时，再把入口连接到另一张内部入口卡。</p><Link to="/prototype/topology"><Button icon={<Icon name="arrow" />}>开始编排</Button></Link></section>
-    <div className="su-overview-steps"><div><b>01</b><h3>选择资源</h3><p>full / lite、NAT、能力一目了然。</p></div><div><b>02</b><h3>配置入口</h3><p>基础、协议、安全、高级分区编辑。</p></div><div><b>03</b><h3>确认应用</h3><p>先有草稿，再确认模拟生效。</p></div></div>
+    <section className="su-welcome-card"><span className="su-section-eyebrow">YOUR FIRST WORKSPACE</span><h2>一台服务器，就是起点。</h2><p>从 HK-zouter 创建一个 Reality 入口，本机直出即可闭环。<br />再次拖入服务器可复用相同入口，独立配置节点出站。</p><Link to="/prototype/topology"><Button icon={<Icon name="arrow" />}>开始编排</Button></Link></section>
+    <div className="su-overview-steps"><div><b>01</b><h3>选择资源</h3><p>仅 full agent；NAT / 轻量 agent 后续再议。</p></div><div><b>02</b><h3>复用或新建入口</h3><p>十二种协议目录，按能力开放分区表单。</p></div><div><b>03</b><h3>配置出站并确认</h3><p>本机直出或引用下一跳，再模拟生效。</p></div></div>
   </div>;
 }
 
 function Servers() {
   const { state } = useWorkspace();
   return <div className="su-standard-page"><PageHeader title="服务器节点" description="服务器是资源，不是订阅中的代理。能力和在线状态均为合成演示。" actions={<Link to="/prototype/topology"><Button type="primary">从画布创建入口</Button></Link>} />
-    <div className="su-server-grid">{serverAssets.map(server => <section className="su-server-detail" key={server.id}><div className="su-server-detail-title"><span className="su-region-icon">{server.country}</span><div><h2>{server.name}</h2><p>{server.region} · {server.address}</p></div></div><div><Tag color={server.profile === 'full' ? 'blue' : 'purple'}>{server.profile}</Tag>{server.network === 'nat' && <Tag color="orange">NAT</Tag>}<Tag color={server.online ? 'green' : undefined}>{server.online ? '在线 · 模拟' : '离线 · 模拟'}</Tag></div><dl><div><dt>协议能力</dt><dd>{server.protocols.map(protocol => protocolLabels[protocol]).join(' / ') || '未知，不放行'}</dd></div><div><dt>网络 / 内存</dt><dd>{server.udp ? 'TCP + UDP' : '仅 TCP'} / {server.memory}</dd></div><div><dt>入口数量</dt><dd>{state.proxies.filter(proxy => proxy.serverId === server.id).length} / {server.maxProxies || '未知'}</dd></div><div><dt>链路能力</dt><dd>{server.profile === 'lite' ? 'direct-only · 末端未准入' : server.chainTarget ? '内部入口可作为下一跳' : '未验证'}</dd></div></dl>{server.network === 'nat' && <Alert type="warning" title="合成 NAT 映射 · 10080 → 21080、10081 → 21081；TCP。未验证用户计量、租约或真实内存。" />}</section>)}</div>
+    <div className="su-server-grid">{serverAssets.map(server => <section className="su-server-detail" key={server.id}><div className="su-server-detail-title"><span className="su-region-icon">{server.country}</span><div><h2>{server.name}</h2><p>{server.region} · {server.address}</p></div></div><div><Tag color="blue">full</Tag><Tag color={server.online ? 'green' : undefined}>{server.online ? '在线 · 模拟' : '离线 · 模拟'}</Tag></div><dl><div><dt>协议能力</dt><dd>{server.protocols.map(protocol => protocolLabels[protocol]).join(' / ') || '未知，不放行'}</dd></div><div><dt>网络 / 内存</dt><dd>{server.udp ? 'TCP + UDP' : '仅 TCP'} / {server.memory}</dd></div><div><dt>独立入口数量</dt><dd>{state.inbounds.filter(inbound => inbound.serverId === server.id).length} / {server.maxProxies || '未知'}</dd></div><div><dt>链路能力</dt><dd>{server.chainTarget ? '任何用途入口可复用为下一跳' : '未验证'}</dd></div></dl></section>)}</div>
   </div>;
 }
 
 function Proxies() {
   const { state } = useWorkspace();
-  return <div className="su-standard-page"><PageHeader title="代理节点" description="每一个入口都有独立身份、端口与发布状态。以下仅为合成工作区视图。" actions={<Link to="/prototype/topology"><Button type="primary" icon={<Icon name="plus" />}>在画布创建</Button></Link>} />
-    {!state.proxies.length ? <div className="su-placeholder-page"><Empty description="尚未创建代理入口"><Link to="/prototype/topology"><Button type="primary">前往拓扑编排</Button></Link></Empty></div> : <div className="su-proxy-table-wrap"><table className="su-proxy-table"><thead><tr><th>代理名称</th><th>所属服务器</th><th>协议 / 端口</th><th>出口（草稿）</th><th>状态</th><th>操作</th></tr></thead><tbody>{state.proxies.map(proxy => <tr key={proxy.id}><td><strong>{proxy.config?.name ?? '待配置入口'}</strong><small>{proxy.config?.exposure === 'internal' ? '内部入口' : proxy.config ? '订阅入口' : '占位草稿'}</small></td><td>{getServer(proxy.serverId).name}</td><td>{proxy.config ? `${protocolLabels[proxy.config.protocol]} / ${proxy.config.listenPort}` : '—'}</td><td>{state.links.some(link => link.source === proxy.id) ? `下一跳 → ${state.proxies.find(target => target.id === state.links.find(link => link.source === proxy.id)?.target)?.config?.name}` : '本机直出'}</td><td><span className={`su-status su-status-${proxy.status}`}><span />{statusLabels[proxy.status]}</span></td><td><Link to="/prototype/topology">在画布编辑</Link></td></tr>)}</tbody></table></div>}
+  return <div className="su-standard-page"><PageHeader title="代理节点" description="节点 = 独立入口引用 + 出站配置。多个节点可共享同一监听端口；以下仅为模拟。" actions={<Link to="/prototype/topology"><Button type="primary" icon={<Icon name="plus" />}>在画布创建</Button></Link>} />
+    {!state.proxies.length ? <div className="su-placeholder-page"><Empty description="尚未创建代理节点"><Link to="/prototype/topology"><Button type="primary">前往拓扑编排</Button></Link></Empty></div> : <div className="su-proxy-table-wrap"><table className="su-proxy-table"><thead><tr><th>节点 / 入口引用</th><th>所属服务器</th><th>协议 / 端口</th><th>出站（草稿）</th><th>状态</th><th>操作</th></tr></thead><tbody>{state.proxies.map(proxy => {
+      const inbound = getInbound(state.inbounds, proxy);
+      return <tr key={proxy.id}><td><strong>{proxy.name || '待配置节点'}</strong><small>{inbound ? `${inbound.config.name} · 被 ${inboundReferences(state.proxies, inbound.id).length} 个节点引用` : '占位草稿'}</small></td><td>{getServer(proxy.serverId).name}</td><td>{inbound ? `${protocolLabels[inbound.config.protocol]} / ${inbound.config.listenPort}` : '—'}</td><td>{egressSummary(proxy.egress, state.inbounds)}</td><td><span className={`su-status su-status-${proxy.status}`}><span />{statusLabels[proxy.status]}</span></td><td><Link to="/prototype/topology">在画布编辑</Link></td></tr>;
+    })}</tbody></table></div>}
   </div>;
 }
 
