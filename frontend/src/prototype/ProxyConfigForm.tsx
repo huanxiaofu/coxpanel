@@ -28,6 +28,7 @@ import {
 import type { InboundResource, Protocol, ProxyConfig, ProxyDraft, ServerAsset } from "./model";
 import InboundProtocolFields from "./InboundProtocolFields";
 import type { InboundFormSection } from "./InboundProtocolFields";
+import { useWorkspace } from "./WorkspaceProvider";
 
 export interface ProxyConfigFormProps {
   proxy: ProxyDraft;
@@ -162,8 +163,7 @@ function sectionForPath(path: FormPath): string {
   }
 }
 
-function createInitialConfig(proxy: ProxyDraft, inbounds: InboundResource[]): ProxyConfig {
-  const server = getServer(proxy.serverId);
+function createInitialConfig(proxy: ProxyDraft, inbounds: InboundResource[], server: ServerAsset): ProxyConfig {
   const inbound = getInbound(inbounds, proxy);
   const config = { ...(inbound?.config ?? defaultConfig(server, inbounds)) };
   return config;
@@ -201,7 +201,7 @@ function protocolGate(protocol: Protocol, server: ServerAsset, published: boolea
 function applyBlockers(config: ProxyConfig, server: ServerAsset, inbound: InboundResource | undefined, inbounds: InboundResource[]): string[] {
   const blockers: string[] = [];
   if (!IMPLEMENTED_PROTOCOLS.includes(config.protocol)) blockers.push("当前协议仍在规划中，不能应用。");
-  if (!server.online) blockers.push("服务器离线，暂不能应用。");
+  if (server.status !== 'online') blockers.push("服务器离线或维护中，暂不能应用。");
   if (!server.capabilitiesKnown) blockers.push("服务器能力未知，暂不能应用。");
   if (!server.protocols.includes(config.protocol)) blockers.push(`服务器未声明支持${protocolLabels[config.protocol]}。`);
   if (server.maxProxies > 0 && inbounds.filter((candidate) => candidate.serverId === server.id && candidate.id !== inbound?.id).length >= server.maxProxies) blockers.push(`服务器入口资源容量已满（${server.maxProxies}）。`);
@@ -250,9 +250,10 @@ function HiddenReadinessFields(): ReactElement {
 }
 
 export default function ProxyConfigForm({ proxy, inbounds, referenceCount, egressLabel, onSave, onClose }: ProxyConfigFormProps): ReactElement {
-  const server = getServer(proxy.serverId);
+  const { state: { servers } } = useWorkspace();
+  const server = getServer(proxy.serverId, servers);
   const inbound = getInbound(inbounds, proxy);
-  const [initialConfig] = useState<ProxyConfig>(() => createInitialConfig(proxy, inbounds));
+  const [initialConfig] = useState<ProxyConfig>(() => createInitialConfig(proxy, inbounds, server));
   const [form] = Form.useForm<ProxyConfig>();
   const [activeSection, setActiveSection] = useState("basic");
   const [activeProtocol, setActiveProtocol] = useState<Protocol>(initialConfig.protocol);
@@ -447,7 +448,7 @@ export default function ProxyConfigForm({ proxy, inbounds, referenceCount, egres
       {isPublished && <Alert type="info" showIcon title="已发布入口" description="协议选择已锁定；修改其它字段会先保留为草稿，应用后更新共享入口。" />}
       <Alert type="warning" showIcon title="仅前端合成原型" description="不会发起网络请求、读取凭据或回显任何真实或合成密钥内容。" />
       <Alert type={canApply ? "success" : "warning"} showIcon title={canApply ? "应用前检查通过" : "当前只能保存草稿"} description={blockers.length > 0 ? <Space orientation="vertical" size={2}>{blockers.map((blocker) => <Typography.Text key={blocker}>{blocker}</Typography.Text>)}</Space> : "当前三种实现协议的能力、端口和材料状态均满足应用前检查。"} />
-      <Typography.Text type="secondary" className="su-proxy-config-capacity-text">同机入口资源：{resourceCount}{server.maxProxies > 0 ? `/${server.maxProxies}` : ""} · {server.online ? "online" : "offline"} · {server.capabilitiesKnown ? "capabilities known" : "capabilities unknown"}</Typography.Text>
+      <Typography.Text type="secondary" className="su-proxy-config-capacity-text">同机入口资源：{resourceCount}{server.maxProxies > 0 ? `/${server.maxProxies}` : ""} · {server.status} · {server.capabilitiesKnown ? "capabilities known" : "capabilities unknown"}</Typography.Text>
     </div>
   );
 

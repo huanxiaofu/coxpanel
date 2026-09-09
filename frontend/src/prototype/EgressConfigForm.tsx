@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Alert, Descriptions, Form, Input, Modal, Radio, Select, Switch, Tabs, Tag } from 'antd';
 import { connectionError, egressSummary, getServer, inboundReferences, protocolLabels } from './model';
 import type { EgressConfig, InboundResource, ProxyDraft } from './model';
+import { useWorkspace } from './WorkspaceProvider';
 
 export default function EgressConfigForm({ proxy, inbounds, proxies, onSave, onClose }: {
   proxy: ProxyDraft;
@@ -10,10 +11,11 @@ export default function EgressConfigForm({ proxy, inbounds, proxies, onSave, onC
   onSave: (name: string, egress: EgressConfig) => void;
   onClose: () => void;
 }) {
+  const { state: { servers } } = useWorkspace();
   const [form] = Form.useForm();
   const [config, setConfig] = useState<EgressConfig>({ ...proxy.egress, dns: { ...proxy.egress.dns } });
   const target = inbounds.find(inbound => inbound.id === config.targetInboundId);
-  const reason = config.type === 'next-hop' ? connectionError(proxies, inbounds, proxy.id, config.targetInboundId ?? '') : undefined;
+  const reason = config.type === 'next-hop' ? connectionError(proxies, inbounds, proxy.id, config.targetInboundId ?? '', servers) : undefined;
   const update = (patch: Partial<EgressConfig>) => setConfig(current => ({ ...current, ...patch }));
   return <Modal open title="出站配置" width={640} onCancel={onClose} cancelText="取消（不保存）" okText="保存出站草稿" okButtonProps={{ disabled: Boolean(reason) }} onOk={() => void form.validateFields().then(values => onSave(String(values.name).trim(), config)).catch(() => undefined)}>
     <Form form={form} layout="vertical" initialValues={{ name: proxy.name }}>
@@ -22,8 +24,8 @@ export default function EgressConfigForm({ proxy, inbounds, proxies, onSave, onC
       {config.type === 'next-hop' && <>
         <Form.Item label="目标入站资源" validateStatus={reason ? 'warning' : undefined} help={reason ?? '订阅入口、内部入口均可复用；无需重新创建监听。'}>
           <Select aria-label="选择下一跳入口" placeholder="选择任意服务器的已有入口" value={config.targetInboundId} onChange={targetInboundId => update({ targetInboundId })} options={inbounds.map(inbound => {
-            const disabledReason = connectionError(proxies, inbounds, proxy.id, inbound.id);
-            return { value: inbound.id, disabled: Boolean(disabledReason), label: `${inbound.config.name} · ${getServer(inbound.serverId).name} :${inbound.config.listenPort}${disabledReason ? `（${disabledReason}）` : ''}` };
+            const disabledReason = connectionError(proxies, inbounds, proxy.id, inbound.id, servers);
+            return { value: inbound.id, disabled: Boolean(disabledReason), label: `${inbound.config.name} · ${getServer(inbound.serverId, servers).name} :${inbound.config.listenPort}${disabledReason ? `（${disabledReason}）` : ''}` };
           })} />
         </Form.Item>
         {target && <Descriptions size="small" column={1} bordered items={[

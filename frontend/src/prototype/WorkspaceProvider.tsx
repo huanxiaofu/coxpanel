@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useReducer, useState } from 'react';
 import type { ReactNode } from 'react';
-import { connectionError, getInbound, getServer, inboundPortConflict, inboundReadiness, inboundReferences } from './model';
-import type { EgressConfig, InboundResource, ProxyConfig, ProxyDraft } from './model';
+import { connectionError, getInbound, getServer, inboundPortConflict, inboundReadiness, inboundReferences, serverAssets, validateServerTraffic } from './model';
+import type { EgressConfig, InboundResource, ProxyConfig, ProxyDraft, ServerAsset, ServerTraffic } from './model';
 
 interface Operation {
   ids: string[];
@@ -10,12 +10,15 @@ interface Operation {
 }
 
 export interface WorkspaceState {
+  servers: ServerAsset[];
   proxies: ProxyDraft[];
   inbounds: InboundResource[];
   operation?: Operation;
 }
 
 export type WorkspaceAction =
+  | { type: 'server-save'; id: string; tags: string[]; traffic: ServerTraffic }
+  | { type: 'server-toggle'; id: string }
   | { type: 'add'; proxy: ProxyDraft }
   | { type: 'move'; positions: Array<{ id: string; position: ProxyDraft['position'] }> }
   | { type: 'remove'; id: string }
@@ -27,7 +30,7 @@ export type WorkspaceAction =
   | { type: 'advance' }
   | { type: 'reset' };
 
-export const initialState: WorkspaceState = { proxies: [], inbounds: [] };
+export const initialState: WorkspaceState = { servers: serverAssets, proxies: [], inbounds: [] };
 const asDraft = (proxy: ProxyDraft): ProxyDraft => ({ ...proxy, status: 'draft', dirty: true, failure: undefined });
 
 export function workspaceApplyError(state: WorkspaceState, ids: string[]): string | undefined {
@@ -38,13 +41,13 @@ export function workspaceApplyError(state: WorkspaceState, ids: string[]): strin
     if (!proxy || !inbound) return '请先配置所有选中节点的入口。';
     if (proxy.egress.type === 'block') return 'block 仅预留，不可应用。';
     if (proxy.egress.type === 'next-hop') {
-      const reason = connectionError(state.proxies, state.inbounds, id, proxy.egress.targetInboundId ?? '');
+      const reason = connectionError(state.proxies, state.inbounds, id, proxy.egress.targetInboundId ?? '', state.servers);
       if (reason) return reason;
     }
     for (const resourceId of [inbound.id, proxy.egress.targetInboundId].filter(Boolean)) {
       const resource = state.inbounds.find(item => item.id === resourceId);
       if (!resource) return '目标入口不存在。';
-      const reason = inboundReadiness(resource);
+      const reason = inboundReadiness(resource, state.servers);
       if (reason) return `${resource.config.name}：${reason}`;
       if (inboundPortConflict(state.inbounds, resource.serverId, resource.config.listenPort, resource.id)) return '同机端口已被其他入口占用。';
       const resourceDirty = JSON.stringify(resource.config) !== JSON.stringify(resource.published);
@@ -57,7 +60,21 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
   const busy = state.operation?.phase === 'preparing' || state.operation?.phase === 'applying';
   if (busy && action.type !== 'advance' && action.type !== 'move') return state;
   switch (action.type) {
-    case 'add': return { ...state, proxies: [...state.proxies, action.proxy] };
+    case 'server-save': {
+      const tags = [...new Set(action.tags.map(tag => tag.trim()).filter(Boolean))];
+      if (validateServerTraffic(action.traffic) || tags.length > 12 || tags.some(tag => tag.length > 24)) return state;
+      return { ...state, servers: state.servers.map(server => server.id === action.id ? { ...server, tags, traffic: { ...action.traffic, usedBytes: server.traffic.usedBytes } } : server) };
+    }
+    case 'server-toggle': return { ...state, servers: state.servers.map(server => server.id === action.id ? {
+      ...server,
+      status: server.status === 'maintenance' ? server.resumeStatus ?? 'offline' : 'maintenance',
+      resumeStatus: server.status === 'maintenance' ? undefined : server.status,
+    } : server) };
+    case 'add': {
+      const server = state.servers.find(item => item.id === action.proxy.serverId);
+      if (!server || server.status !== 'online' || !server.capabilitiesKnown) return state;
+      return { ...state, proxies: [...state.proxies, action.proxy] };
+    }
     case 'move': return { ...state, proxies: state.proxies.map(proxy => {
       const changed = action.positions.find(position => position.id === proxy.id);
       return changed ? { ...proxy, position: changed.position } : proxy;
@@ -68,7 +85,7 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
       if (!proxy || inboundPortConflict(state.inbounds, proxy.serverId, action.config.listenPort, proxy.inboundId)) return state;
       const existing = getInbound(state.inbounds, proxy);
       if (existing?.published && existing.config.protocol !== action.config.protocol) return state;
-      if (!existing && state.inbounds.filter(item => item.serverId === proxy.serverId).length >= getServer(proxy.serverId).maxProxies) return state;
+      if (!existing && state.inbounds.filter(item => item.serverId === proxy.serverId).length >= getServer(proxy.serverId, state.servers).maxProxies) return state;
       const inboundId = existing?.id ?? `inbound:${proxy.id}`;
       const resource = { ...existing, id: inboundId, serverId: proxy.serverId, config: action.config };
       const affected = new Set(inboundReferences(state.proxies, inboundId, true).map(item => item.id));
@@ -82,7 +99,7 @@ export function workspaceReducer(state: WorkspaceState, action: WorkspaceAction)
     }
     case 'egress': {
       if (action.egress.type === 'block') return state;
-      if (action.egress.type === 'next-hop' && connectionError(state.proxies, state.inbounds, action.id, action.egress.targetInboundId ?? '')) return state;
+      if (action.egress.type === 'next-hop' && connectionError(state.proxies, state.inbounds, action.id, action.egress.targetInboundId ?? '', state.servers)) return state;
       const egress = { ...action.egress, targetInboundId: action.egress.type === 'next-hop' ? action.egress.targetInboundId : undefined };
       return { ...state, proxies: state.proxies.map(proxy => proxy.id === action.id ? asDraft({ ...proxy, name: action.name, egress }) : proxy) };
     }
@@ -135,10 +152,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(timer);
   }, [busy, state.operation?.phase]);
   useEffect(() => {
-    const beforeUnload = (event: BeforeUnloadEvent) => { if (state.proxies.length || state.inbounds.length) event.preventDefault(); };
+    const beforeUnload = (event: BeforeUnloadEvent) => { if (state.proxies.length || state.inbounds.length || state.servers !== initialState.servers) event.preventDefault(); };
     window.addEventListener('beforeunload', beforeUnload);
     return () => window.removeEventListener('beforeunload', beforeUnload);
-  }, [state.proxies.length, state.inbounds.length]);
+  }, [state.proxies.length, state.inbounds.length, state.servers]);
   return <WorkspaceContext.Provider value={{ state, busy, dispatch, simulateFailure, setSimulateFailure, applyError: ids => workspaceApplyError(state, ids) }}>{children}</WorkspaceContext.Provider>;
 }
 

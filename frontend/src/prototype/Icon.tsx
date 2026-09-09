@@ -1,6 +1,10 @@
-export type IconName = 'overview' | 'server' | 'proxy' | 'topology' | 'users' | 'subscription' | 'traffic' | 'settings' | 'menu' | 'plus' | 'arrow' | 'help' | 'reset' | 'chevron' | 'grip';
+export type IconName = 'overview' | 'server' | 'proxy' | 'topology' | 'users' | 'subscription' | 'traffic' | 'settings' | 'menu' | 'plus' | 'arrow' | 'help' | 'reset' | 'chevron' | 'grip' | 'check' | 'pause' | 'offline' | 'copy';
 
 const paths: Record<IconName, string> = {
+  check: 'M20 6 9 17l-5-5',
+  pause: 'M8 5v14 M16 5v14',
+  offline: 'M18 6 6 18 M6 6l12 12',
+  copy: 'M9 9h11v12H9z M15 9V3H3v12h6',
   overview: 'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',
   server: 'M4 3h16v7H4z M4 14h16v7H4z M7 6.5h.01 M7 17.5h.01 M11 6.5h6 M11 17.5h6',
   proxy: 'M12 3 3 8l9 5 9-5-9-5z M3 12l9 5 9-5 M3 16l9 5 9-5',

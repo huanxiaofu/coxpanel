@@ -2,9 +2,10 @@ import { Alert, Button, Empty, Tag } from 'antd';
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import AppShell, { navigation, PageHeader } from './AppShell';
 import { Icon } from './Icon';
-import { egressSummary, getInbound, getServer, inboundReferences, protocolLabels, serverAssets, statusLabels } from './model';
+import { egressSummary, getInbound, getServer, inboundReferences, protocolLabels, statusLabels } from './model';
 import { ThemeProvider } from './ThemeProvider';
 import TopologyWorkspace from './TopologyWorkspace';
+import ServersPage from './ServersPage';
 import { WorkspaceProvider, useWorkspace } from './WorkspaceProvider';
 import './prototype.css';
 
@@ -13,20 +14,13 @@ function Overview() {
   return <div className="su-standard-page"><PageHeader title="总览" description="从服务器资源到代理服务，一处掌握工作区。" actions={<Link to="/prototype/topology"><Button type="primary" icon={<Icon name="topology" />}>进入拓扑编排</Button></Link>} />
     <Alert type="info" showIcon title="R1 合成工作区 · 以下统计仅来自本次原型会话，不是生产指标。" />
     <div className="su-stats-grid">{[
-      ['服务器资源', serverAssets.length, '2 台在线 · 1 台离线（模拟）'],
+      ['服务器资源', state.servers.length, `${state.servers.filter(server => server.status === 'online').length} 台在线 · ${state.servers.filter(server => server.status === 'offline').length} 台离线 · ${state.servers.filter(server => server.status === 'maintenance').length} 台维护（模拟）`],
       ['独立入口资源', state.inbounds.length, '同一端口可被多个节点引用'],
       ['已生效 · 模拟', state.proxies.filter(proxy => proxy.published).length, '不代表真实部署回执'],
       ['待应用草稿', state.proxies.filter(proxy => proxy.dirty).length, '不会进入真实订阅'],
     ].map(([label, value, detail]) => <section className="su-stat-card" key={label}><span>{label}</span><strong>{value}</strong><small>{detail}</small></section>)}</div>
     <section className="su-welcome-card"><span className="su-section-eyebrow">YOUR FIRST WORKSPACE</span><h2>一台服务器，就是起点。</h2><p>从 HK-zouter 创建一个 Reality 入口，本机直出即可闭环。<br />再次拖入服务器可复用相同入口，独立配置节点出站。</p><Link to="/prototype/topology"><Button icon={<Icon name="arrow" />}>开始编排</Button></Link></section>
     <div className="su-overview-steps"><div><b>01</b><h3>选择资源</h3><p>仅 full agent；NAT / 轻量 agent 后续再议。</p></div><div><b>02</b><h3>复用或新建入口</h3><p>十二种协议目录，按能力开放分区表单。</p></div><div><b>03</b><h3>配置出站并确认</h3><p>本机直出或引用下一跳，再模拟生效。</p></div></div>
-  </div>;
-}
-
-function Servers() {
-  const { state } = useWorkspace();
-  return <div className="su-standard-page"><PageHeader title="服务器节点" description="服务器是资源，不是订阅中的代理。能力和在线状态均为合成演示。" actions={<Link to="/prototype/topology"><Button type="primary">从画布创建入口</Button></Link>} />
-    <div className="su-server-grid">{serverAssets.map(server => <section className="su-server-detail" key={server.id}><div className="su-server-detail-title"><span className="su-region-icon">{server.country}</span><div><h2>{server.name}</h2><p>{server.region} · {server.address}</p></div></div><div><Tag color="blue">full</Tag><Tag color={server.online ? 'green' : undefined}>{server.online ? '在线 · 模拟' : '离线 · 模拟'}</Tag></div><dl><div><dt>协议能力</dt><dd>{server.protocols.map(protocol => protocolLabels[protocol]).join(' / ') || '未知，不放行'}</dd></div><div><dt>网络 / 内存</dt><dd>{server.udp ? 'TCP + UDP' : '仅 TCP'} / {server.memory}</dd></div><div><dt>独立入口数量</dt><dd>{state.inbounds.filter(inbound => inbound.serverId === server.id).length} / {server.maxProxies || '未知'}</dd></div><div><dt>链路能力</dt><dd>{server.chainTarget ? '任何用途入口可复用为下一跳' : '未验证'}</dd></div></dl></section>)}</div>
   </div>;
 }
 
@@ -58,7 +52,7 @@ export default function PrototypeApp() {
   return <BrowserRouter><ThemeProvider><WorkspaceProvider><AppShell><Routes>
     <Route path="/prototype/topology" element={<TopologyWorkspace />} />
     <Route path="/prototype/overview" element={<Overview />} />
-    <Route path="/prototype/servers" element={<Servers />} />
+    <Route path="/prototype/servers" element={<ServersPage />} />
     <Route path="/prototype/proxies" element={<Proxies />} />
     <Route path="/prototype/users" element={<Placeholder />} />
     <Route path="/prototype/subscriptions" element={<Placeholder />} />

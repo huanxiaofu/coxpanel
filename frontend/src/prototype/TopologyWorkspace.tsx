@@ -5,7 +5,7 @@ import type { Connection, Edge, Node, NodeProps } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { PageHeader } from './AppShell';
 import { Icon } from './Icon';
-import { connectionError, defaultEgress, egressSummary, getInbound, getServer, inboundReferences, protocolLabels, serverAssets, statusLabels } from './model';
+import { connectionError, defaultEgress, egressSummary, getInbound, getServer, inboundReferences, protocolLabels, statusLabels } from './model';
 import type { InboundResource, ProxyConfig, ProxyDraft, ServerAsset } from './model';
 import ProxyConfigForm from './ProxyConfigForm';
 import EgressConfigForm from './EgressConfigForm';
@@ -31,7 +31,8 @@ type ProxyFlowNode = Node<CardData, 'proxy'>;
 
 function ProxyNodeCard({ data, selected }: NodeProps<ProxyFlowNode>) {
   const { proxy, inbound } = data;
-  const server = getServer(proxy.serverId);
+  const { state } = useWorkspace();
+  const server = getServer(proxy.serverId, state.servers);
   const config = inbound?.config;
   const items = [
     { key: 'configure', label: config ? '编辑共享入口' : '新建入口', disabled: data.busy, onClick: () => data.onConfigure(proxy.id) },
@@ -42,7 +43,7 @@ function ProxyNodeCard({ data, selected }: NodeProps<ProxyFlowNode>) {
   ];
   return <Dropdown menu={{ items }} trigger={['contextMenu']}>
     <article className={`su-proxy-card ${!config ? 'is-placeholder' : ''} ${selected ? 'is-selected' : ''}`} data-proxy-id={proxy.id} data-inbound-id={inbound?.id} aria-label={config ? proxy.name : `${server.name} 待配置入口`}>
-      <Handle type="target" position={Position.Left} isConnectable={Boolean(config && server.chainTarget && !data.busy)} aria-label="入口引用目标" />
+      <Handle type="target" position={Position.Left} isConnectable={Boolean(config && server.chainTarget && server.status === 'online' && !data.busy)} aria-label="入口引用目标" />
       <div className="su-proxy-card-heading"><span className={`su-protocol-icon protocol-${config?.protocol ?? 'draft'}`}><Icon name={config ? 'proxy' : 'plus'} size={19} /></span><div><h3>{config ? proxy.name : '创建节点'}</h3><span><Icon name="server" size={11} /> {server.name}</span></div><Dropdown menu={{ items }} trigger={['click']}><Button className="nodrag nopan" type="text" size="small" aria-label={`${proxy.name || server.name} 操作菜单`}>•••</Button></Dropdown></div>
       {config ? <>
         <div className="su-proxy-badges"><Tag color="blue">{protocolLabels[config.protocol]}</Tag><Tag>{config.exposure === 'internal' ? '内部入口' : '订阅入口'}</Tag><Tag>:{config.listenPort}</Tag></div>
@@ -54,7 +55,7 @@ function ProxyNodeCard({ data, selected }: NodeProps<ProxyFlowNode>) {
         <div className="su-proxy-card-actions nodrag nopan"><Button type="text" size="small" disabled={data.busy} onClick={() => data.onConfigure(proxy.id)}>编辑入口</Button><Button type="text" size="small" disabled={data.busy} onClick={() => data.onEgress(proxy.id)}>配置出站</Button></div>
         <small className="su-reference-count">入口被 {data.references} 个节点引用 · 不重复占用端口</small>
       </> : <><p className="su-placeholder-copy">一台服务器 + 一个入口 + 本机直出<br />即可完成单机闭环。</p><div className="su-placeholder-bottom nodrag nopan"><Button type="primary" size="small" disabled={data.busy} onClick={() => data.onConfigure(proxy.id)}>新建入口</Button>{data.available > 0 && <Button size="small" disabled={data.busy} onClick={() => data.onReuse(proxy.id)}>选择已有入口 ({data.available})</Button>}</div></>}
-      <Handle type="source" position={Position.Right} isConnectable={Boolean(config && !data.busy)} aria-label="拖线引用下一跳入口" title="拖到已有入口，设置本节点出站" />
+      <Handle type="source" position={Position.Right} isConnectable={Boolean(config && server.status === 'online' && !data.busy)} aria-label="拖线引用下一跳入口" title="拖到已有入口，设置本节点出站" />
     </article>
   </Dropdown>;
 }
@@ -62,6 +63,7 @@ const nodeTypes = { proxy: ProxyNodeCard };
 
 function WorkspaceCanvas() {
   const { state, dispatch, busy, simulateFailure, setSimulateFailure, applyError } = useWorkspace();
+  const serverAssets = state.servers;
   const { dark } = useTheme();
   const { modal, message } = App.useApp();
   const flow = useReactFlow<ProxyFlowNode>();
@@ -97,7 +99,7 @@ function WorkspaceCanvas() {
   const revertEgress = useCallback((id: string) => dispatch({ type: 'revert-egress', id }), [dispatch]);
   const fitNodes = () => window.setTimeout(() => void flow.fitView({ duration: 250, padding: 0.22, maxZoom: 1 }), 120);
   const addServer = (server: ServerAsset, position?: ProxyDraft['position']) => {
-    if (busy || !server.online || !server.capabilitiesKnown) return;
+    if (busy || server.status !== 'online' || !server.capabilitiesKnown) return;
     const id = `draft:${draftIdPrefix}:${nextDraftId.current++}`;
     const count = state.proxies.length;
     dispatch({ type: 'add', proxy: { id, serverId: server.id, name: '', egress: defaultEgress(), position: position ?? { x: 70 + (count % 2) * 380, y: 95 + Math.floor(count / 2) * 365 }, status: 'draft', dirty: false } });
@@ -120,7 +122,7 @@ function WorkspaceCanvas() {
     if (busy) return;
     const source = state.proxies.find(proxy => proxy.id === connection.source);
     const target = state.proxies.find(proxy => proxy.id === connection.target);
-    const reason = connectionError(state.proxies, state.inbounds, connection.source, target?.inboundId ?? '');
+    const reason = connectionError(state.proxies, state.inbounds, connection.source, target?.inboundId ?? '', state.servers);
     if (reason || !source) { setError(reason ?? '节点不存在'); return; }
     dispatch({ type: 'egress', id: source.id, name: source.name, egress: { ...source.egress, type: 'next-hop', tag: 'proxy_out', targetInboundId: target?.inboundId } });
     setError('');
@@ -128,12 +130,12 @@ function WorkspaceCanvas() {
   };
   const nodes: ProxyFlowNode[] = useMemo(() => state.proxies.map(proxy => ({
     id: proxy.id, type: 'proxy', position: proxy.position, selected: proxy.id === selectedId,
-    ariaLabel: `${proxy.name || getServer(proxy.serverId).name + ' 待配置入口'}，按 Enter 配置`,
+    ariaLabel: `${proxy.name || getServer(proxy.serverId, state.servers).name + ' 待配置入口'}，按 Enter 配置`,
     data: { proxy, inbound: getInbound(state.inbounds, proxy), references: inboundReferences(state.proxies, proxy.inboundId ?? '').length,
       available: state.inbounds.filter(inbound => inbound.serverId === proxy.serverId).length, busy,
       egress: egressSummary(proxy.egress, state.inbounds), publishedEgress: proxy.published ? egressSummary(proxy.published.egress, state.inbounds, true) : undefined,
       onConfigure: configure, onEgress: openEgress, onReuse: openReuse, onRevert: revertEgress, onRemove: remove },
-  })), [state.proxies, state.inbounds, selectedId, busy, configure, openEgress, openReuse, revertEgress, remove]);
+  })), [state.proxies, state.inbounds, state.servers, selectedId, busy, configure, openEgress, openReuse, revertEgress, remove]);
   const edges: Edge[] = state.proxies.flatMap(proxy => {
     if (proxy.egress.type !== 'next-hop') return [];
     const target = state.proxies.find(item => item.inboundId === proxy.egress.targetInboundId);

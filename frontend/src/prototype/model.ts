@@ -1,5 +1,16 @@
 export type Protocol = 'wireguard' | 'mixed' | 'vless-reality' | 'vmess' | 'trojan' | 'shadowsocks' | 'hysteria2' | 'tuic' | 'naive' | 'shadowtls' | 'anytls' | 'http';
 export type DeploymentStatus = 'draft' | 'preparing' | 'applying' | 'active' | 'failed';
+export type ServerStatus = 'online' | 'offline' | 'maintenance';
+
+export interface ServerTraffic {
+  limitBytes: number;
+  usedBytes: number;
+  resetDay: number;
+  resetCycle: 'daily' | 'weekly' | 'monthly' | 'custom';
+  customDays: number;
+  resetAnchor: string;
+  statsMode: 'total' | 'outbound';
+}
 
 export interface ServerAsset {
   id: string;
@@ -8,7 +19,15 @@ export interface ServerAsset {
   country: string;
   profile: 'full';
   network: 'public';
-  online: boolean;
+  status: ServerStatus;
+  resumeStatus?: 'online' | 'offline';
+  tags: string[];
+  publicIp: string;
+  privateIp: string;
+  agentVersion: string;
+  lastHeartbeat: string;
+  resources?: { cpuPercent: number; memUsedMb: number; memTotalMb: number; load: number };
+  traffic: ServerTraffic;
   capabilitiesKnown: boolean;
   protocols: Protocol[];
   methods: string[];
@@ -98,31 +117,129 @@ export const statusLabels: Record<DeploymentStatus, string> = {
   draft: '草稿', preparing: '准备中 · 模拟', applying: '应用中 · 模拟', active: '已生效 · 模拟', failed: '应用失败 · 模拟',
 };
 
+export const serverStatusLabels: Record<ServerStatus, string> = { online: '在线', offline: '离线', maintenance: '维护中' };
+const gibibyte = 1024 ** 3;
+const fixtureTime = Date.now();
+const heartbeatBefore = (minutes: number) => new Date(fixtureTime - minutes * 60_000).toISOString();
+const trafficAnchor = new Date(new Date(fixtureTime).setUTCHours(0, 0, 0, 0)).toISOString();
+const defaultTraffic: ServerTraffic = {
+  limitBytes: 1024 * gibibyte, usedBytes: 0, resetDay: 1, resetCycle: 'monthly',
+  customDays: 30, resetAnchor: trafficAnchor, statsMode: 'total',
+};
+
 export const serverAssets: ServerAsset[] = [
   {
     id: 'server-hk', name: 'HK-zouter', region: '香港', country: 'HK', profile: 'full', network: 'public',
-    online: true, capabilitiesKnown: true, protocols: ['vless-reality', 'shadowsocks', 'hysteria2'],
+    status: 'online', capabilitiesKnown: true, protocols: ['vless-reality', 'shadowsocks', 'hysteria2'],
+    tags: ['HK', '旗舰', 'CN2'], publicIp: '203.0.113.10', privateIp: '10.0.1.10', agentVersion: '1.0.0-demo',
+    lastHeartbeat: heartbeatBefore(0.2), resources: { cpuPercent: 24, memUsedMb: 768, memTotalMb: 2048, load: 0.42 },
+    traffic: { ...defaultTraffic, limitBytes: 2 * 1024 * gibibyte, usedBytes: 812 * gibibyte, resetDay: 15 },
     methods: ['2022-blake3-aes-128-gcm', '2022-blake3-aes-256-gcm', '2022-blake3-chacha20-poly1305'],
     udp: true, chainTarget: true, maxProxies: 12, memory: '2 GB', address: 'hk.example.invalid',
     certificates: [{ id: 'demo-cert-hk', name: 'HK 演示证书（合成引用）', domain: 'hk.example.invalid' }],
   },
   {
     id: 'server-sg', name: 'SG-edge', region: '新加坡', country: 'SG', profile: 'full', network: 'public',
-    online: true, capabilitiesKnown: true, protocols: ['vless-reality', 'shadowsocks', 'hysteria2'],
+    status: 'online', capabilitiesKnown: true, protocols: ['vless-reality', 'shadowsocks', 'hysteria2'],
+    tags: ['SG', '标准'], publicIp: '198.51.100.20', privateIp: '10.0.2.20', agentVersion: '1.0.0-demo',
+    lastHeartbeat: heartbeatBefore(0.5), resources: { cpuPercent: 68, memUsedMb: 846, memTotalMb: 1024, load: 1.28 },
+    traffic: { ...defaultTraffic, usedBytes: 936 * gibibyte, resetCycle: 'weekly', resetDay: 1, statsMode: 'outbound' },
     methods: ['2022-blake3-aes-128-gcm', '2022-blake3-aes-256-gcm'], udp: true, chainTarget: true,
     maxProxies: 8, memory: '1 GB', address: 'sg.example.invalid', certificates: [],
   },
   {
     id: 'server-us', name: 'US-standby', region: '美国', country: 'US', profile: 'full', network: 'public',
-    online: false, capabilitiesKnown: false, protocols: [], methods: [], udp: false, chainTarget: false,
+    status: 'offline', capabilitiesKnown: false, protocols: [], methods: [], udp: false, chainTarget: false,
+    tags: ['US', '备用'], publicIp: '192.0.2.30', privateIp: '10.0.3.30', agentVersion: '未上报',
+    lastHeartbeat: heartbeatBefore(180), traffic: { ...defaultTraffic, limitBytes: 0, usedBytes: 42 * gibibyte, resetCycle: 'daily' },
     maxProxies: 0, memory: '未上报', address: 'us.example.invalid', certificates: [],
+  },
+  {
+    id: 'server-jp', name: 'JP-transit', region: '日本', country: 'JP', profile: 'full', network: 'public',
+    status: 'maintenance', resumeStatus: 'online', capabilitiesKnown: true, protocols: ['vless-reality', 'shadowsocks'],
+    tags: ['JP', '备用', '标准'], publicIp: '203.0.113.40', privateIp: '10.0.4.40', agentVersion: '1.0.0-demo',
+    lastHeartbeat: heartbeatBefore(25), resources: { cpuPercent: 8, memUsedMb: 512, memTotalMb: 4096, load: 0.12 },
+    traffic: { ...defaultTraffic, limitBytes: 500 * gibibyte, usedBytes: 523 * gibibyte, resetCycle: 'custom', customDays: 14 },
+    methods: ['2022-blake3-aes-128-gcm'], udp: true, chainTarget: true,
+    maxProxies: 16, memory: '4 GB', address: 'jp.example.invalid', certificates: [],
   },
 ];
 
-export function getServer(serverId: string): ServerAsset {
-  const server = serverAssets.find(asset => asset.id === serverId);
+export function getServer(serverId: string, servers: ServerAsset[] = serverAssets): ServerAsset {
+  const server = servers.find(asset => asset.id === serverId);
   if (!server) throw new Error('找不到合成服务器');
   return server;
+}
+
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return '—';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+  const exponent = bytes > 0 ? Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1) : 0;
+  return `${Number((bytes / 1024 ** exponent).toFixed(exponent >= 3 ? 2 : 0))} ${units[exponent]}`;
+}
+
+export function validateServerTraffic(traffic: ServerTraffic): string | undefined {
+  if (![traffic.limitBytes, traffic.usedBytes].every(value => Number.isSafeInteger(value) && value >= 0)) return '流量必须是非负有限值，且不能超过安全整数范围。';
+  if (!['daily', 'weekly', 'monthly', 'custom'].includes(traffic.resetCycle)) return '请选择有效刷新周期。';
+  if (!['total', 'outbound'].includes(traffic.statsMode)) return '请选择有效流量统计方式。';
+  if (!Number.isInteger(traffic.resetDay) || traffic.resetDay < 1 || traffic.resetDay > (traffic.resetCycle === 'weekly' ? 7 : 31)) return traffic.resetCycle === 'weekly' ? '请选择周一至周日。' : '每月刷新日须为 1–31 的整数。';
+  if (!Number.isInteger(traffic.customDays) || traffic.customDays < 1 || traffic.customDays > 365) return '自定义周期须为 1–365 天的整数。';
+  if (!Number.isFinite(Date.parse(traffic.resetAnchor))) return '刷新周期起点无效。';
+}
+
+export function nextTrafficReset(traffic: ServerTraffic, now = new Date()): Date {
+  if (validateServerTraffic(traffic) || !Number.isFinite(now.getTime())) return new Date(NaN);
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const dayMilliseconds = 86_400_000;
+  if (traffic.resetCycle === 'daily') return new Date(today + dayMilliseconds);
+  if (traffic.resetCycle === 'weekly') {
+    const untilNext = (traffic.resetDay % 7 - now.getUTCDay() + 7) % 7 || 7;
+    return new Date(today + untilNext * dayMilliseconds);
+  }
+  if (traffic.resetCycle === 'monthly') {
+    const monthlyDate = (offset: number) => {
+      const month = now.getUTCMonth() + offset;
+      const lastDay = new Date(Date.UTC(now.getUTCFullYear(), month + 1, 0)).getUTCDate();
+      return new Date(Date.UTC(now.getUTCFullYear(), month, Math.min(traffic.resetDay, lastDay)));
+    };
+    const candidate = monthlyDate(0);
+    return candidate > now ? candidate : monthlyDate(1);
+  }
+  const anchorDate = new Date(traffic.resetAnchor);
+  const anchor = Date.UTC(anchorDate.getUTCFullYear(), anchorDate.getUTCMonth(), anchorDate.getUTCDate());
+  const period = traffic.customDays * dayMilliseconds;
+  const intervals = Math.max(1, Math.floor((now.getTime() - anchor) / period) + 1);
+  return new Date(anchor + intervals * period);
+}
+
+export function trafficCycleLabel(traffic: ServerTraffic): string {
+  if (traffic.resetCycle === 'daily') return '每天';
+  if (traffic.resetCycle === 'weekly') return `每周${['一', '二', '三', '四', '五', '六', '日'][traffic.resetDay - 1]}`;
+  if (traffic.resetCycle === 'custom') return `每 ${traffic.customDays} 天`;
+  return `每月 ${traffic.resetDay} 日`;
+}
+
+export interface ServerFilters {
+  query: string;
+  status: 'all' | ServerStatus;
+  tag: string;
+  region: string;
+  sort: 'name' | 'status' | 'memory';
+}
+
+export function filterServers(servers: ServerAsset[], filters: ServerFilters): ServerAsset[] {
+  const query = filters.query.trim().toLocaleLowerCase();
+  const statusOrder: Record<ServerStatus, number> = { online: 0, maintenance: 1, offline: 2 };
+  const memoryPercent = (server: ServerAsset) => server.resources && server.resources.memTotalMb > 0 ? server.resources.memUsedMb / server.resources.memTotalMb : -1;
+  return servers.filter(server => {
+    const searchable = [server.name, server.address, server.publicIp, server.privateIp, server.region, server.country, ...server.tags].join(' ').toLocaleLowerCase();
+    return searchable.includes(query) && (filters.status === 'all' || server.status === filters.status) &&
+      (!filters.tag || server.tags.includes(filters.tag)) && (!filters.region || server.country === filters.region);
+  }).sort((first, second) => {
+    const difference = filters.sort === 'status' ? statusOrder[first.status] - statusOrder[second.status] :
+      filters.sort === 'memory' ? memoryPercent(second) - memoryPercent(first) : 0;
+    return difference || first.name.localeCompare(second.name, 'zh-CN', { numeric: true });
+  });
 }
 
 export function getInbound(inbounds: InboundResource[], proxy: ProxyDraft) {
@@ -165,13 +282,13 @@ export function egressSummary(egress: EgressConfig, inbounds: InboundResource[],
   return config ? `下一跳 → ${config.name} · ${protocolLabels[config.protocol]} · ${config.advertisedAddress}:${config.advertisedPort}` : '下一跳入口不可用';
 }
 
-export function connectionError(proxies: ProxyDraft[], inbounds: InboundResource[], sourceId: string, targetInboundId: string): string | undefined {
+export function connectionError(proxies: ProxyDraft[], inbounds: InboundResource[], sourceId: string, targetInboundId: string, servers: ServerAsset[] = serverAssets): string | undefined {
   const source = proxies.find(proxy => proxy.id === sourceId);
   const target = inbounds.find(inbound => inbound.id === targetInboundId);
   if (!source?.inboundId || !target) return '请先配置并保存入口，再选择下一跳。';
   if (source.inboundId === target.id) return '不能连接到自身入口（包括复用它的节点）。';
-  if (!getServer(source.serverId).online || !getServer(target.serverId).online) return '服务器离线，不能建立新连线。';
-  if (!getServer(target.serverId).chainTarget) return '目标尚未通过链路能力门禁。';
+  if (getServer(source.serverId, servers).status !== 'online' || getServer(target.serverId, servers).status !== 'online') return '服务器离线或维护中，不能建立新连线。';
+  if (!getServer(target.serverId, servers).chainTarget) return '目标尚未通过链路能力门禁。';
   const candidate = proxies.map(proxy => proxy.id === sourceId ? { ...proxy, egress: { ...proxy.egress, type: 'next-hop' as const, targetInboundId } } : proxy);
   const visit = (inboundId: string, path: string[]): string | undefined => {
     if (path.includes(inboundId)) return '不允许形成有向环（按入站资源检查）。';
@@ -191,10 +308,10 @@ export function connectionError(proxies: ProxyDraft[], inbounds: InboundResource
   return undefined;
 }
 
-export function inboundReadiness(inbound: InboundResource): string | undefined {
+export function inboundReadiness(inbound: InboundResource, servers: ServerAsset[] = serverAssets): string | undefined {
   const { config } = inbound;
-  const server = getServer(inbound.serverId);
-  if (!server.online || !server.capabilitiesKnown || !server.protocols.includes(config.protocol)) return '服务器离线或协议能力不可用。';
+  const server = getServer(inbound.serverId, servers);
+  if (server.status !== 'online' || !server.capabilitiesKnown || !server.protocols.includes(config.protocol)) return '服务器离线、维护中或协议能力不可用。';
   if (!config.name?.trim()) return '入口名称不能为空。';
   if (![config.listenPort, config.advertisedPort].every(port => Number.isInteger(port) && port >= 1 && port <= 65535)) return '端口必须为 1-65535 的整数。';
   const hostname = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$/;
